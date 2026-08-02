@@ -44,7 +44,7 @@ describe("money helpers", () => {
     expect(totals.grand_total).toBe(0);
   });
 
-  it("formats currency", () => {
-    expect(formatCurrency(19.995)).toBe("$20.00");
+  it("formats currency in LKR", () => {
+    expect(formatCurrency(19.995)).toBe("Rs 20.00");
   });
 });

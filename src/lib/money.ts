@@ -15,10 +15,10 @@ export function mulMoney(a: number, b: number): number {
 }
 
 export function formatCurrency(n: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-  }).format(round2(n));
+  return `Rs ${new Intl.NumberFormat("en-LK", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(round2(n))}`;
 }
 
 export interface CartLineTotals {

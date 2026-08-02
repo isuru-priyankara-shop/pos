@@ -70,6 +70,7 @@ export interface Sale {
   status: SaleStatus;
   created_offline: boolean;
   synced_at: string | null;
+  void_reason: string | null;
 }
 
 export interface SaleItem {

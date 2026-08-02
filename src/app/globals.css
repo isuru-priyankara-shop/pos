@@ -128,3 +128,25 @@
     @apply font-sans;
   }
 }
+
+/* Receipt printing: only the receipt area is printed */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #receipt-print,
+  #receipt-print * {
+    visibility: visible;
+  }
+  #receipt-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    box-shadow: none;
+  }
+  body {
+    background: white;
+  }
+}

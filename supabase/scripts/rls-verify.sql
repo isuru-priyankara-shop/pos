@@ -32,6 +32,7 @@ declare
   v_cashier uuid := (select id from auth.users where email = 'test.cashier@pos.test');
   v_variant uuid;
   v_sale uuid;
+  v_sale3 uuid;
   v_failures integer := 0;
 begin
   select id into v_variant from product_variants limit 1;
@@ -148,6 +149,97 @@ begin
       insert into inventory_transactions (variant_id, type, quantity) values (v_variant, 'restock', 7);
       select stock_qty into v_after from product_variants where id = v_variant;
       insert into rls_results values (v_after = v_before + 7, 'inventory_transactions insert adjusts stock_qty');
+    end;
+  end;
+
+  -- ---------- FUNCTIONS: record_sale / void_sale (as cashier) ----------
+  begin
+    set local role authenticated;
+    perform set_config('request.jwt.claims', json_build_object('sub', v_cashier::text, 'role', 'authenticated')::text, true);
+    declare
+      v_sale2 uuid := gen_random_uuid();
+      v_res jsonb;
+    begin
+      -- cashier CAN record their own sale
+      v_res := public.record_sale(
+        jsonb_build_object('id', v_sale2, 'cashier_id', v_cashier, 'sale_date', now(),
+                           'subtotal', 19.99, 'discount_total', 0, 'tax_total', 0, 'grand_total', 19.99),
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'variant_id', v_variant,
+                           'quantity', 1, 'unit_price', 19.99, 'line_discount', 0, 'line_total', 19.99)),
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'method', 'cash', 'amount', 20))
+      );
+      insert into rls_results values ((v_res->>'created')::boolean = true, 'record_sale: cashier records own sale');
+
+      -- idempotent: same sale id does not duplicate
+      v_res := public.record_sale(
+        jsonb_build_object('id', v_sale2, 'cashier_id', v_cashier, 'sale_date', now(),
+                           'subtotal', 19.99, 'discount_total', 0, 'tax_total', 0, 'grand_total', 19.99),
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'variant_id', v_variant,
+                           'quantity', 1, 'unit_price', 19.99, 'line_discount', 0, 'line_total', 19.99)),
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'method', 'cash', 'amount', 20))
+      );
+      insert into rls_results values ((v_res->>'created')::boolean = false, 'record_sale: idempotent on sale id');
+
+      -- cashier CANNOT record a sale for another cashier
+      begin
+        v_res := public.record_sale(
+          jsonb_build_object('id', gen_random_uuid(), 'cashier_id', v_manager, 'sale_date', now(),
+                             'subtotal', 10, 'discount_total', 0, 'tax_total', 0, 'grand_total', 10),
+          jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'variant_id', v_variant,
+                             'quantity', 1, 'unit_price', 10, 'line_discount', 0, 'line_total', 10)),
+          jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'method', 'cash', 'amount', 10))
+        );
+        insert into rls_results values (false, 'record_sale: cashier CANNOT record for another cashier (should raise)');
+      exception when others then
+        insert into rls_results values (true, 'record_sale: cashier CANNOT record for another cashier');
+      end;
+
+      -- void gate: threshold is 0 -> cashier CANNOT void own sale above it
+      begin
+        v_res := public.void_sale(v_sale2, 'void', 'test');
+        insert into rls_results values (false, 'void_sale: cashier CANNOT void above threshold (should raise)');
+      exception when others then
+        insert into rls_results values (true, 'void_sale: cashier CANNOT void above threshold');
+      end;
+
+      -- raised threshold -> cashier CAN void their own sale
+      update app_settings set value = '999999' where key = 'void_threshold';
+      v_res := public.void_sale(v_sale2, 'void', 'test');
+      insert into rls_results values ((v_res->>'status')::text = 'void', 'void_sale: cashier CAN void own sale at/under threshold');
+      update app_settings set value = '0' where key = 'void_threshold';
+
+      -- cashier CANNOT void another cashier''s sale
+      -- (create a manager-owned sale at postgres level first)
+      v_sale3 := gen_random_uuid();
+      insert into sales (id, cashier_id, subtotal, grand_total, synced_at)
+      values (v_sale3, v_manager, 50, 50, now());
+      begin
+        v_res := public.void_sale(v_sale3, 'void', 'test');
+        insert into rls_results values (false, 'void_sale: cashier CANNOT void another cashier''s sale (should raise)');
+      exception when others then
+        insert into rls_results values (true, 'void_sale: cashier CANNOT void another cashier''s sale');
+      end;
+    end;
+  end;
+
+  -- ---------- FUNCTIONS: record_sale / void_sale (as manager) ----------
+  begin
+    set local role authenticated;
+    perform set_config('request.jwt.claims', json_build_object('sub', v_manager::text, 'role', 'authenticated')::text, true);
+    declare
+      v_res jsonb;
+    begin
+      -- manager records a HIGH-value sale and can void it above threshold
+      v_sale3 := gen_random_uuid();
+      v_res := public.record_sale(
+        jsonb_build_object('id', v_sale3, 'cashier_id', v_manager, 'sale_date', now(),
+                           'subtotal', 9999, 'discount_total', 0, 'tax_total', 0, 'grand_total', 9999),
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'variant_id', v_variant,
+                           'quantity', 1, 'unit_price', 9999, 'line_discount', 0, 'line_total', 9999)),
+        jsonb_build_array(jsonb_build_object('id', gen_random_uuid(), 'method', 'cash', 'amount', 9999))
+      );
+      v_res := public.void_sale(v_sale3, 'refunded', 'manager test');
+      insert into rls_results values ((v_res->>'status')::text = 'refunded', 'void_sale: manager CAN void above threshold');
     end;
   end;
 

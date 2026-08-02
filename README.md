@@ -24,7 +24,7 @@ src/
     auth.ts             role gating helpers
     money.ts            currency math (2dp-safe)
 supabase/
-  migrations/           00001 schema, 00002 RLS, 00003 indexes, 00004 seed, 00005 profiles email
+  migrations/           00001 schema, 00002 RLS, 00003 indexes, 00004 seed, 00005 profiles email, 00006 POS functions
   scripts/              rls-verify.sql, bootstrap-admin.sql
   functions/            Edge Functions (sync-sale, void-sale, stripe-*)
 ```
@@ -46,7 +46,16 @@ supabase/
 ## Verification
 
 - RLS: run `supabase/scripts/rls-verify.sql` against the project — asserts per-role
-  permissions (cashier read/insert only, manager void + inventory, admin profiles)
-  and the stock-guard trigger.
-- Unit: `npm run test` (auth role gating, money math)
+  permissions (cashier read/insert only, manager void + inventory, admin profiles),
+  the stock-guard trigger, and `record_sale`/`void_sale` gates (idempotency, threshold).
+- Unit: `npm run test` (auth role gating, money math, barcode scanner, POS payloads)
 - Typecheck: `npm run typecheck` · Lint: `npm run lint`
+
+## POS flow (Phase 2)
+
+- `/pos` — scan barcode or tap a product → pick size/color → cart → Charge → payment
+  (cash/card/qr/credit, split allowed, cash change) → printable receipt.
+- Sales are written by `record_sale` (idempotent on the client-generated sale UUID),
+  stock decrements through `inventory_transactions`.
+- `/sales` — history; void/refund restores stock; above `void_threshold` a manager's
+  email + password must be entered (validated server-side in `POST /api/sales/[id]/void`).

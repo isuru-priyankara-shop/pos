@@ -1,3 +1,7 @@
-export default function Placeholder() {
-  return <div className="p-6 text-muted-foreground">Coming in a later phase.</div>;
+"use client";
+
+import { PosTerminal } from "@/components/pos/pos-terminal";
+
+export default function PosPage() {
+  return <PosTerminal />;
 }
