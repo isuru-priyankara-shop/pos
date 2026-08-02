@@ -1,36 +1,52 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Store POS — Clothing Shop Point of Sale
 
-## Getting Started
+Offline-first POS for a single clothing store. Next.js (App Router, TypeScript) PWA + Supabase
+(Postgres, Auth, Realtime, Storage, Edge Functions) + Dexie.js offline cache.
 
-First, run the development server:
+## Stack
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- **Frontend:** Next.js 16 (App Router, `proxy.ts`), Tailwind v4, shadcn/ui, Radix
+- **Backend:** Supabase (Postgres + RLS, Auth, Realtime, Storage, Edge Functions)
+- **Offline:** Dexie.js (IndexedDB), PWA service worker, background sync engine
+- **Testing:** Vitest (unit), Playwright (e2e)
+- **Payments:** Stripe via Edge Function (never client-side)
+
+## Project structure
+
+```
+src/
+  app/(dashboard)/      protected POS screens (pos, inventory, sales, ...)
+  app/login/            staff sign-in
+  components/           shadcn/ui + app components
+  lib/
+    supabase/           browser + server clients
+    db.types.ts         schema types (mirrors migrations)
+    auth.ts             role gating helpers
+    money.ts            currency math (2dp-safe)
+supabase/
+  migrations/           00001 schema, 00002 RLS, 00003 indexes, 00004 seed, 00005 profiles email
+  scripts/              rls-verify.sql, bootstrap-admin.sql
+  functions/            Edge Functions (sync-sale, void-sale, stripe-*)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Create a Supabase project at https://supabase.com/dashboard.
+2. Run the migrations in `supabase/migrations/` (in order) in the SQL editor.
+3. Copy `.env.example` to `.env.local` — fill in URL, anon key **and** `SUPABASE_SERVICE_ROLE_KEY`
+   (Project Settings → API → service_role; needed by the Staff section to create login accounts).
+4. Create your first staff user in **Auth → Users → Add user** (email/password).
+4. Run `supabase/scripts/bootstrap-admin.sql` with that email — makes them an active admin.
+5. Copy `.env.example` to `.env.local` and fill in the Supabase URL + anon key.
+6. In Supabase Dashboard → Auth → Settings:
+   - disable public sign-ups (admins create staff users)
+   - allowlist the app URL (http://localhost:3000 for dev)
+7. `npm install && npm run dev`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Verification
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- RLS: run `supabase/scripts/rls-verify.sql` against the project — asserts per-role
+  permissions (cashier read/insert only, manager void + inventory, admin profiles)
+  and the stock-guard trigger.
+- Unit: `npm run test` (auth role gating, money math)
+- Typecheck: `npm run typecheck` · Lint: `npm run lint`
