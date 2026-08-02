@@ -84,8 +84,9 @@ supabase/
 
 ## POS flow (Phase 2)
 
-- `/pos` — scan barcode or tap a product → pick size/color → cart → Charge → payment
-  (cash/card/qr/credit, split allowed, cash change) → printable receipt.
+- `/pos` — scan barcode (hardware HID scanner *or* camera button — `html5-qrcode`,
+  rear camera, works on phone browsers) or tap a product → pick size/color → cart →
+  Charge → payment (cash/card/qr/credit, split allowed, cash change) → printable receipt.
 - Sales are written by `record_sale` (idempotent on the client-generated sale UUID),
   stock decrements through `inventory_transactions`.
 - `/sales` — history; void/refund restores stock; above `void_threshold` a manager's

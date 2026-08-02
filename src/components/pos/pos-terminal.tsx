@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Minus, Plus, Search, Shirt, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useCallback, useState } from "react";
+import { Camera, Minus, Plus, Search, Shirt, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-provider";
 import type { Category, ProductWithVariants } from "@/lib/db.types";
@@ -10,6 +10,7 @@ import { computeTotals, formatCurrency, resolveDiscount, round2 } from "@/lib/mo
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import { CheckoutDialog } from "@/components/pos/checkout-dialog";
 import { ReceiptView, type ReceiptData } from "@/components/pos/receipt-view";
+import { CameraScanner } from "@/components/pos/camera-scanner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -40,6 +41,7 @@ export function PosTerminal() {
   const [cartDiscountMode, setCartDiscountMode] = useState<"fixed" | "percent">("fixed");
   const [pickerProduct, setPickerProduct] = useState<ProductWithVariants | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
 
@@ -85,8 +87,8 @@ export function PosTerminal() {
     });
   }
 
-  useBarcodeScanner(
-    (barcode) => {
+  const addByBarcode = useCallback(
+    (barcode: string) => {
       for (const p of products) {
         const v = p.variants?.find((v) => v.barcode === barcode);
         if (v) {
@@ -96,19 +98,11 @@ export function PosTerminal() {
       }
       toast.error(`Barcode ${barcode} not found`);
     },
-    !checkoutOpen
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [products]
   );
 
-  function addByBarcode(barcode: string) {
-    for (const p of products) {
-      const v = p.variants?.find((v) => v.barcode === barcode);
-      if (v) {
-        addVariant(v.id);
-        return;
-      }
-    }
-    toast.error(`Barcode ${barcode} not found`);
-  }
+  useBarcodeScanner(addByBarcode, !checkoutOpen && !cameraOpen);
 
   function changeQty(variantId: string, delta: number) {
     setCart((prev) =>
@@ -240,6 +234,15 @@ export function PosTerminal() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </form>
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => setCameraOpen(true)}
+            title="Scan with camera"
+          >
+            <Camera className="size-4" />
+          </Button>
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
             <SelectTrigger className="w-44">
               <SelectValue />
@@ -453,6 +456,9 @@ export function PosTerminal() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ---------- Camera scanner ---------- */}
+      <CameraScanner open={cameraOpen} onOpenChange={setCameraOpen} onScan={addByBarcode} />
 
       {/* ---------- Checkout ---------- */}
       <CheckoutDialog
