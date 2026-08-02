@@ -5,8 +5,8 @@ import { Minus, Plus, Search, Shirt, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-provider";
 import type { Category, ProductWithVariants } from "@/lib/db.types";
-import { buildSalePayload, cartToTotalsInput, type CartLine, type PaymentEntry } from "@/lib/pos";
-import { computeTotals, formatCurrency, lineTotal, round2 } from "@/lib/money";
+import { buildSalePayload, cartToTotalsInput, cartLineTotals, type CartLine, type PaymentEntry } from "@/lib/pos";
+import { computeTotals, formatCurrency, resolveDiscount, round2 } from "@/lib/money";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import { CheckoutDialog } from "@/components/pos/checkout-dialog";
 import { ReceiptView, type ReceiptData } from "@/components/pos/receipt-view";
@@ -36,6 +36,8 @@ export function PosTerminal() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [cartDiscount, setCartDiscount] = useState(0);
+  const [cartDiscountMode, setCartDiscountMode] = useState<"fixed" | "percent">("fixed");
   const [pickerProduct, setPickerProduct] = useState<ProductWithVariants | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
@@ -79,7 +81,7 @@ export function PosTerminal() {
       if (existing) {
         return prev.map((l) => (l.variant.id === variantId ? { ...l, quantity: nextQty } : l));
       }
-      return [...prev, { variant: { ...variant, product_name: product.name }, quantity: 1, line_discount: 0 }];
+      return [...prev, { variant: { ...variant, product_name: product.name }, quantity: 1, line_discount: 0, discount_type: "fixed" as const }];
     });
   }
 
@@ -124,18 +126,27 @@ export function PosTerminal() {
     );
   }
 
-  function setDiscount(variantId: string, value: number) {
-    setCart((prev) => prev.map((l) => (l.variant.id === variantId ? { ...l, line_discount: Math.max(0, round2(value)) } : l)));
+  function setDiscount(variantId: string, value: number, mode: "fixed" | "percent") {
+    setCart((prev) =>
+      prev.map((l) =>
+        l.variant.id === variantId
+          ? { ...l, line_discount: Math.max(0, round2(value)), discount_type: mode }
+          : l
+      )
+    );
   }
 
   function removeLine(variantId: string) {
     setCart((prev) => prev.filter((l) => l.variant.id !== variantId));
   }
 
-  const totals = useMemo(
-    () => computeTotals(cartToTotalsInput(cart), taxRate, 0),
-    [cart, taxRate]
-  );
+  const totals = useMemo(() => {
+    const input = cartToTotalsInput(cart);
+    const subtotal = round2(input.reduce((acc, l) => acc + l.unit_price * l.quantity, 0));
+    const lineDiscounts = round2(input.reduce((acc, l) => acc + l.line_discount, 0));
+    const effective = resolveDiscount(Math.max(0, subtotal - lineDiscounts), cartDiscount, cartDiscountMode);
+    return computeTotals(input, taxRate, effective);
+  }, [cart, taxRate, cartDiscount, cartDiscountMode]);
 
   const filteredProducts = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -155,7 +166,7 @@ export function PosTerminal() {
 
   async function handleComplete(customerId: string | null, payments: PaymentEntry[]) {
     if (!user) throw new Error("Not signed in");
-    const payload = buildSalePayload(cart, customerId, user.id, taxRate, payments, false);
+    const payload = buildSalePayload(cart, customerId, user.id, taxRate, payments, false, cartDiscount, cartDiscountMode);
     const { error } = await supabase.rpc("record_sale", {
       p_sale: payload.sale,
       p_items: payload.items,
@@ -178,15 +189,18 @@ export function PosTerminal() {
       saleDate: payload.sale.sale_date,
       cashierName: profile?.full_name ?? "Cashier",
       customerName,
-      items: cart.map((l) => ({
-        name: l.variant.product_name,
-        size: l.variant.size,
-        color: l.variant.color,
-        quantity: l.quantity,
-        unit_price: l.variant.price,
-        line_discount: l.line_discount,
-        line_total: lineTotal(l.variant.price, l.quantity, l.line_discount),
-      })),
+      items: cart.map((l) => {
+        const line = cartLineTotals(l);
+        return {
+          name: l.variant.product_name,
+          size: l.variant.size,
+          color: l.variant.color,
+          quantity: l.quantity,
+          unit_price: line.unit_price,
+          line_discount: line.line_discount,
+          line_total: line.line_total,
+        };
+      }),
       subtotal: payload.sale.subtotal,
       discount_total: payload.sale.discount_total,
       tax_total: payload.sale.tax_total,
@@ -195,6 +209,7 @@ export function PosTerminal() {
       change: Math.max(0, payments.filter((p) => p.method === "cash").reduce((a, p) => a + p.amount, 0) - payload.sale.grand_total),
     });
     setCart([]);
+    setCartDiscount(0);
     setCheckoutOpen(false);
     await loadData.current();
     toast.success("Sale recorded");
@@ -278,7 +293,7 @@ export function PosTerminal() {
         <div className="flex items-center justify-between border-b p-3">
           <h2 className="font-semibold">Current sale</h2>
           {cart.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => setCart([])}>
+            <Button variant="ghost" size="sm" onClick={() => { setCart([]); setCartDiscount(0); }}>
               Clear
             </Button>
           )}
@@ -314,7 +329,7 @@ export function PosTerminal() {
                     </Button>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold">{formatCurrency(lineTotal(l.variant.price, l.quantity, l.line_discount))}</p>
+                    <p className="text-sm font-semibold">{formatCurrency(cartLineTotals(l).line_total)}</p>
                     <p className="text-xs text-muted-foreground">
                       {formatCurrency(l.variant.price)} × {l.quantity}
                     </p>
@@ -322,14 +337,26 @@ export function PosTerminal() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">Discount</span>
+                  <Select
+                    value={l.discount_type}
+                    onValueChange={(v) => setDiscount(l.variant.id, l.line_discount, v as "fixed" | "percent")}
+                  >
+                    <SelectTrigger className="h-7 w-14 text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="fixed">Rs</SelectItem>
+                      <SelectItem value="percent">%</SelectItem>
+                    </SelectContent>
+                  </Select>
                   <Input
                     type="number"
                     min={0}
                     step="0.01"
-                    className="h-7 w-28 text-xs"
+                    className="h-7 w-24 text-xs"
                     value={l.line_discount === 0 ? "" : l.line_discount}
-                    placeholder="0.00"
-                    onChange={(e) => setDiscount(l.variant.id, parseFloat(e.target.value) || 0)}
+                    placeholder={l.discount_type === "percent" ? "10%" : "0.00"}
+                    onChange={(e) => setDiscount(l.variant.id, parseFloat(e.target.value) || 0, l.discount_type)}
                   />
                 </div>
               </div>
@@ -341,6 +368,34 @@ export function PosTerminal() {
           <div className="flex justify-between">
             <span className="text-muted-foreground">Subtotal</span>
             <span>{formatCurrency(totals.subtotal)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-muted-foreground">Sale discount</span>
+            <div className="flex items-center gap-1">
+              <Select
+                value={cartDiscountMode}
+                onValueChange={(v) => setCartDiscountMode(v as "fixed" | "percent")}
+                disabled={cart.length === 0}
+              >
+                <SelectTrigger className="h-7 w-14 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="fixed">Rs</SelectItem>
+                  <SelectItem value="percent">%</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                className="h-7 w-24 text-right text-xs"
+                value={cartDiscount === 0 ? "" : cartDiscount}
+                placeholder={cartDiscountMode === "percent" ? "10%" : "0.00"}
+                onChange={(e) => setCartDiscount(Math.max(0, round2(parseFloat(e.target.value) || 0)))}
+                disabled={cart.length === 0}
+              />
+            </div>
           </div>
           {totals.discount_total > 0 && (
             <div className="flex justify-between">

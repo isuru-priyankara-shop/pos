@@ -39,6 +39,21 @@ export function lineTotal(unitPrice: number, quantity: number, lineDiscount: num
   return round2(unitPrice * quantity - lineDiscount);
 }
 
+export type DiscountMode = "fixed" | "percent";
+
+/**
+ * Resolves a discount entry into an absolute LKR amount.
+ * Fixed: the value itself, clamped to [0, base].
+ * Percent: value% of base, clamped to [0, base].
+ */
+export function resolveDiscount(base: number, value: number, mode: DiscountMode): number {
+  if (mode === "percent") {
+    const pct = Math.min(100, Math.max(0, value));
+    return round2((Math.max(0, base) * pct) / 100);
+  }
+  return Math.min(Math.max(0, base), Math.max(0, round2(value)));
+}
+
 export function computeTotals(
   lines: CartLineTotals[],
   taxRatePct: number,

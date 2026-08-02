@@ -6,6 +6,7 @@ import {
   lineTotal,
   computeTotals,
   formatCurrency,
+  resolveDiscount,
 } from "@/lib/money";
 
 describe("money helpers", () => {
@@ -46,5 +47,18 @@ describe("money helpers", () => {
 
   it("formats currency in LKR", () => {
     expect(formatCurrency(19.995)).toBe("Rs 20.00");
+  });
+
+  it("resolveDiscount: fixed clamps to the base", () => {
+    expect(resolveDiscount(1000, 250, "fixed")).toBe(250);
+    expect(resolveDiscount(1000, 5000, "fixed")).toBe(1000);
+    expect(resolveDiscount(1000, -5, "fixed")).toBe(0);
+  });
+
+  it("resolveDiscount: percent is a share of the base", () => {
+    expect(resolveDiscount(2000, 10, "percent")).toBe(200);
+    expect(resolveDiscount(333.33, 33.3, "percent")).toBe(111);
+    expect(resolveDiscount(1000, 150, "percent")).toBe(1000);
+    expect(resolveDiscount(1000, -10, "percent")).toBe(0);
   });
 });

@@ -57,6 +57,7 @@ export function CheckoutDialog({
 
   function handleOpenChange(next: boolean) {
     if (next) {
+      setBusy(false);
       setPayments([{ id: crypto.randomUUID(), method: "cash", amount: totals.grand_total }]);
       setCustomerQuery("");
       setSelectedCustomer(null);
@@ -121,6 +122,7 @@ export function CheckoutDialog({
       await onComplete(selectedCustomer?.id ?? null, payments);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Checkout failed");
+    } finally {
       setBusy(false);
     }
   }
@@ -139,12 +141,10 @@ export function CheckoutDialog({
               <span className="text-muted-foreground">Subtotal</span>
               <span>{formatCurrency(totals.subtotal)}</span>
             </div>
-            {totals.discount_total > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Discount</span>
-                <span>-{formatCurrency(totals.discount_total)}</span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Discount</span>
+              <span>-{formatCurrency(totals.discount_total)}</span>
+            </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Tax</span>
               <span>{formatCurrency(totals.tax_total)}</span>

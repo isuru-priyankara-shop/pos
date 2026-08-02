@@ -1,5 +1,5 @@
 import type { PaymentMethod, ProductVariant, Sale, SaleItem, Payment } from "./db.types";
-import { lineTotal, round2, mulMoney, addMoney } from "./money";
+import { lineTotal, round2, mulMoney, addMoney, resolveDiscount, type DiscountMode } from "./money";
 
 export interface VariantWithProduct extends ProductVariant {
   product_name: string;
@@ -8,7 +8,8 @@ export interface VariantWithProduct extends ProductVariant {
 export interface CartLine {
   variant: VariantWithProduct;
   quantity: number;
-  line_discount: number;
+  line_discount: number; // raw value; resolved against the line subtotal below
+  discount_type: DiscountMode;
 }
 
 export interface PaymentEntry {
@@ -23,13 +24,25 @@ export interface SalePayload {
   payments: Payment[];
 }
 
-export function cartToTotalsInput(cart: CartLine[]) {
-  return cart.map((l) => ({
-    unit_price: l.variant.price,
+/** Resolved money values for one cart line (percentage discounts applied). */
+export function cartLineTotals(l: CartLine): {
+  unit_price: number;
+  quantity: number;
+  line_discount: number;
+  line_total: number;
+} {
+  const unit = round2(l.variant.price);
+  const lineDiscount = resolveDiscount(unit * l.quantity, l.line_discount, l.discount_type);
+  return {
+    unit_price: unit,
     quantity: l.quantity,
-    line_discount: l.line_discount,
-    line_total: lineTotal(l.variant.price, l.quantity, l.line_discount),
-  }));
+    line_discount: lineDiscount,
+    line_total: lineTotal(unit, l.quantity, lineDiscount),
+  };
+}
+
+export function cartToTotalsInput(cart: CartLine[]) {
+  return cart.map(cartLineTotals);
 }
 
 /**
@@ -64,26 +77,35 @@ export function buildSalePayload(
   cashierId: string,
   taxRatePct: number,
   payments: PaymentEntry[],
-  createdOffline = false
+  createdOffline = false,
+  cartDiscount = 0,
+  cartDiscountMode: DiscountMode = "fixed"
 ): SalePayload {
   const saleId = crypto.randomUUID();
 
   const items: SaleItem[] = cart.map((l) => {
     const unit = round2(l.variant.price);
+    const lineDiscount = resolveDiscount(unit * l.quantity, l.line_discount, l.discount_type);
     return {
       id: crypto.randomUUID(),
       sale_id: saleId,
       variant_id: l.variant.id,
       quantity: l.quantity,
       unit_price: unit,
-      line_discount: round2(l.line_discount),
-      line_total: lineTotal(unit, l.quantity, l.line_discount),
+      line_discount: lineDiscount,
+      line_total: lineTotal(unit, l.quantity, lineDiscount),
     };
   });
 
   const lines = cartToTotalsInput(cart);
   const subtotal = round2(lines.reduce((acc, l) => acc + mulMoney(l.unit_price, l.quantity), 0));
-  const discountTotal = round2(lines.reduce((acc, l) => acc + l.line_discount, 0));
+  const lineDiscounts = round2(lines.reduce((acc, l) => acc + l.line_discount, 0));
+  const cartDiscountResolved = resolveDiscount(
+    Math.max(0, subtotal - lineDiscounts),
+    cartDiscount,
+    cartDiscountMode
+  );
+  const discountTotal = round2(lineDiscounts + cartDiscountResolved);
   const taxable = Math.max(0, subtotal - discountTotal);
   const taxTotal = round2(taxable * (taxRatePct / 100));
   const grandTotal = round2(taxable + taxTotal);
