@@ -45,8 +45,9 @@ export function PosTerminal() {
     const [{ data: prods }, { data: cats }, { data: settings }] = await Promise.all([
       supabase
         .from("products")
-        .select("*, variants:product_variants(*)")
+        .select("*, variants:product_variants!inner(*)")
         .eq("is_active", true)
+        .eq("variants.is_active", true)
         .order("name"),
       supabase.from("categories").select("*").order("name"),
       supabase.from("app_settings").select("key, value"),

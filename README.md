@@ -51,6 +51,18 @@ supabase/
 - Unit: `npm run test` (auth role gating, money math, barcode scanner, POS payloads)
 - Typecheck: `npm run typecheck` · Lint: `npm run lint`
 
+## Inventory management (Phase 1)
+
+- `/inventory` (manager+) — product table with search, category & stock-level filters,
+  low/out-of-stock warnings. Add/edit products (image upload to `product-images` bucket),
+  add size/color variants (barcode, price, cost, reorder level), enable/disable variants
+  (keeps sale history; deletion only allowed if never used).
+- Stock changes go through `inventory_transactions` (restock / adjust / sale / return) —
+  the guard trigger rejects direct `stock_qty` UPDATEs. Per-variant history dialog shows
+  the audit trail. Categories are managed in the Categories dialog.
+- Requires migration `00007_inventory.sql`: adds `product_variants.is_active` (POS only
+  lists active variants) and creates the `product-images` storage bucket + policies.
+
 ## POS flow (Phase 2)
 
 - `/pos` — scan barcode or tap a product → pick size/color → cart → Charge → payment

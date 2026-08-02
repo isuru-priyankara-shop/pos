@@ -39,6 +39,7 @@ export interface ProductVariant {
   cost_price: number | null;
   stock_qty: number;
   reorder_level: number;
+  is_active: boolean;
   created_at: string;
 }
 

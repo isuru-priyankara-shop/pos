@@ -14,6 +14,7 @@ function line(variantId: string, price: number, quantity: number, lineDiscount =
       cost_price: 1,
       stock_qty: 10,
       reorder_level: 2,
+      is_active: true,
       created_at: "",
     },
     quantity,
