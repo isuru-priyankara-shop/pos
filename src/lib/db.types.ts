@@ -82,6 +82,7 @@ export interface SaleItem {
   unit_price: number;
   line_discount: number;
   line_total: number;
+  cost_price?: number | null; // snapshot at sale time (00008); null = cost unknown
 }
 
 export type PaymentMethod = "cash" | "card" | "qr" | "credit";

@@ -63,6 +63,18 @@ supabase/
 - Requires migration `00007_inventory.sql`: adds `product_variants.is_active` (POS only
   lists active variants) and creates the `product-images` storage bucket + policies.
 
+## Sales reporting (Phase 4)
+
+- `/reports` (manager+) — period selector (today / 7 days / this month / last month /
+  custom range) over summary cards: revenue, orders, items sold, profit + margin %,
+  voided count (voids excluded from totals). Payment split, 14-day revenue bars,
+  best sellers (units/revenue/profit), slow movers (in-stock variants with zero sales
+  in the period).
+- Profit uses `sale_items.cost_price`, snapshotted by `record_sale` at sale time
+  (migration `00008_reports.sql`), so historical margins don't drift when costs change.
+  Margin is shown only over items with a known cost; set cost prices on variants to
+  populate it.
+
 ## POS flow (Phase 2)
 
 - `/pos` — scan barcode or tap a product → pick size/color → cart → Charge → payment
