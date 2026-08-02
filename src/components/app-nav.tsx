@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import { canManageCatalog, canAccessReporting, canManageProfiles } from "@/lib/auth";
+import type { Profile } from "@/lib/db.types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -22,10 +23,7 @@ export function AppNav({ profile }: { profile: unknown }) {
   const pathname = usePathname();
   const router = useRouter();
   const { supabase } = useAuth();
-  const p = profile as {
-    full_name: string;
-    role: string;
-  };
+  const p = profile as Profile | null;
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -34,7 +32,7 @@ export function AppNav({ profile }: { profile: unknown }) {
     router.refresh();
   }
 
-  const items = NAV_ITEMS.filter((item) => item.show());
+  const items = NAV_ITEMS.filter((item) => item.show(p));
 
   return (
     <header className="sticky top-0 z-40 border-b bg-background">
@@ -62,9 +60,9 @@ export function AppNav({ profile }: { profile: unknown }) {
         </nav>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="capitalize">
-            {p.role}
+            {p?.role ?? "staff"}
           </Badge>
-          <span className="hidden text-sm text-muted-foreground sm:inline">{p.full_name}</span>
+          <span className="hidden text-sm text-muted-foreground sm:inline">{p?.full_name ?? ""}</span>
           <Button variant="ghost" size="sm" onClick={signOut}>
             Sign out
           </Button>
