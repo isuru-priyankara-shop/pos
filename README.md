@@ -63,6 +63,13 @@ supabase/
 - Requires migration `00007_inventory.sql`: adds `product_variants.is_active` (POS only
   lists active variants) and creates the `product-images` storage bucket + policies.
 
+## Customers
+
+- `/customers` (all staff) — search by name/phone/email, add/edit customers
+  (name required, phone/email optional with validation). Loyalty points and credit
+  balance display read-only (tracked in future phases). Delete is manager+ only;
+  customers referenced by sales are protected by FK.
+
 ## Sales reporting (Phase 4)
 
 - `/reports` (manager+) — period selector (today / 7 days / this month / last month /
