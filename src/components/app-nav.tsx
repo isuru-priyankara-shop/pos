@@ -25,6 +25,7 @@ const NAV_ITEMS = [
   { href: "/purchase-orders", label: "Purchasing", show: canManageCatalog },
   { href: "/reports", label: "Reports", show: canAccessReporting },
   { href: "/staff", label: "Staff", show: canManageProfiles },
+  { href: "/barcodes", label: "Barcodes", show: canManageProfiles },
   { href: "/settings", label: "Settings", show: canManageProfiles },
 ];
 

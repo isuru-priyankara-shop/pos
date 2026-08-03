@@ -135,10 +135,13 @@
     visibility: hidden;
   }
   #receipt-print,
-  #receipt-print * {
+  #receipt-print *,
+  #barcode-print,
+  #barcode-print * {
     visibility: visible;
   }
-  #receipt-print {
+  #receipt-print,
+  #barcode-print {
     position: absolute;
     left: 0;
     top: 0;
