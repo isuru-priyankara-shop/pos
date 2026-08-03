@@ -143,15 +143,15 @@ export function BarcodeLabels({ initialProducts }: { initialProducts: ProductRow
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Barcode labels</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Barcode labels</h1>
           <p className="text-sm text-muted-foreground">
             Select variants and print sticky barcode labels. Admins only.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center gap-2 sm:w-auto">
           <Label htmlFor="copies" className="text-sm">
             Copies
           </Label>
@@ -164,7 +164,7 @@ export function BarcodeLabels({ initialProducts }: { initialProducts: ProductRow
             onChange={(e) => setCopies(Math.max(1, Math.min(99, Number(e.target.value) || 1)))}
             className="w-16"
           />
-          <Button onClick={() => window.print()} disabled={printLabels.length === 0}>
+          <Button className="flex-1 sm:flex-none" onClick={() => window.print()} disabled={printLabels.length === 0}>
             <Printer className="size-4" /> Print labels
             {printLabels.length > 0 ? ` (${printLabels.length})` : ""}
           </Button>
@@ -181,12 +181,53 @@ export function BarcodeLabels({ initialProducts }: { initialProducts: ProductRow
             className="pl-8"
           />
         </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="sm:hidden"
+          onClick={toggleAll}
+        >
+          {allFilteredSelected ? "Clear all" : "Select all"}
+        </Button>
         <Button variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
           Clear selection
         </Button>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      {/* Mobile cards */}
+      <div className="space-y-2 sm:hidden">
+        {filtered.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No variants match.
+          </p>
+        ) : (
+          filtered.map((r) => (
+            <div key={r.variantId} className="flex items-start gap-3 rounded-lg border bg-card p-3">
+              <Checkbox
+                checked={selected.has(r.variantId)}
+                onCheckedChange={() => toggleOne(r.variantId)}
+                className="mt-0.5"
+                aria-label={`Select ${r.productName} ${r.size ?? ""} ${r.color ?? ""}`}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{r.productName}</p>
+                <p className="text-xs text-muted-foreground">
+                  {[r.productSku, [r.size, r.color].filter(Boolean).join(" · ")]
+                    .filter(Boolean)
+                    .join(" · ") || "—"}
+                </p>
+                <p className="mt-1 truncate font-mono text-xs">{r.barcode}</p>
+              </div>
+              <span className="shrink-0 text-sm font-semibold">
+                {formatCurrency(r.price)}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-lg border bg-card sm:block">
         <Table>
           <TableHeader>
             <TableRow>

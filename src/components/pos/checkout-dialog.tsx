@@ -159,7 +159,7 @@ export function CheckoutDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && handleOpenChange(o)}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Checkout</DialogTitle>
           <DialogDescription>
@@ -276,12 +276,12 @@ export function CheckoutDialog({
               </Button>
             </div>
             {payments.map((p) => (
-              <div key={p.id} className="flex items-center gap-2">
+              <div key={p.id} className="flex min-w-0 items-center gap-2">
                 <Select
                   value={p.method}
                   onValueChange={(v) => updatePayment(p.id, { method: v as PaymentMethod })}
                 >
-                  <SelectTrigger className="w-28">
+                  <SelectTrigger className="w-28 shrink-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -297,6 +297,7 @@ export function CheckoutDialog({
                   step="0.01"
                   value={p.amount === 0 ? "" : p.amount}
                   placeholder="0.00"
+                  className="min-w-0 flex-1"
                   onChange={(e) =>
                     updatePayment(p.id, { amount: round2(parseFloat(e.target.value) || 0) })
                   }

@@ -45,8 +45,12 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 p-4">
-      <Card className="w-full max-w-sm">
+    <div
+      className="relative flex min-h-screen items-center justify-center bg-cover bg-center p-4"
+      style={{ backgroundImage: "url('/login-bg.png')" }}
+    >
+      <div className="pointer-events-none absolute inset-0 bg-background/60" aria-hidden />
+      <Card className="relative z-10 w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Store POS</CardTitle>
           <CardDescription>Sign in to open the register</CardDescription>

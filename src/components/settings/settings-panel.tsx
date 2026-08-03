@@ -13,6 +13,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +30,15 @@ import {
   THEME_EVENT,
   THEME_KEYS,
 } from "@/lib/theme";
+import {
+  EMPTY_STORE_DETAILS,
+  PRODUCT_OWNER_PASSWORD,
+  STORE_CATEGORIES,
+  STORE_DETAILS_EVENT,
+  STORE_SETTING_KEYS,
+  storeDetailsFromRows,
+  type StoreDetails,
+} from "@/lib/store-details";
 
 type ThemeColor = {
   key: string;
@@ -51,6 +67,10 @@ export function SettingsPanel() {
   });
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [storeDetails, setStoreDetails] = useState<StoreDetails>(EMPTY_STORE_DETAILS);
+  const [ownerPassword, setOwnerPassword] = useState("");
+  const [storeSaving, setStoreSaving] = useState(false);
+  const ownerUnlocked = ownerPassword === PRODUCT_OWNER_PASSWORD;
 
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +86,7 @@ export function SettingsPanel() {
         }
         return next;
       });
+      setStoreDetails(storeDetailsFromRows(data));
       setLoaded(true);
     };
     void load();
@@ -79,6 +100,32 @@ export function SettingsPanel() {
     setValues(next);
     if (hexIsValid(value)) {
       applyTheme(next[THEME_KEYS.primary], next[THEME_KEYS.secondary]);
+    }
+  };
+
+  const saveStoreDetails = async () => {
+    if (!loaded || !ownerUnlocked) return;
+    if (!storeDetails.category || !storeDetails.name.trim()) {
+      toast.error("Choose a store category and enter the shop name");
+      return;
+    }
+    setStoreSaving(true);
+    try {
+      const { error } = await supabase.from("app_settings").upsert(
+        [
+          { key: STORE_SETTING_KEYS.category, value: storeDetails.category },
+          { key: STORE_SETTING_KEYS.name, value: storeDetails.name.trim() },
+          { key: STORE_SETTING_KEYS.location, value: storeDetails.location.trim() },
+        ],
+        { onConflict: "key" },
+      );
+      if (error) throw error;
+      window.dispatchEvent(new Event(STORE_DETAILS_EVENT));
+      toast.success("Store details saved");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to save store details");
+    } finally {
+      setStoreSaving(false);
     }
   };
 
@@ -132,13 +179,88 @@ export function SettingsPanel() {
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
+    <div className="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Customize the store theme. Changes apply instantly to everyone.
+          Set up your store, customize its theme, and find support details.
         </p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Store details</CardTitle>
+          <CardDescription>
+            Complete these details to unlock the rest of the POS navigation. Only
+            the product owner can edit them.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="owner-password">Product owner password</Label>
+            <Input
+              id="owner-password"
+              type="password"
+              inputMode="numeric"
+              value={ownerPassword}
+              onChange={(event) => setOwnerPassword(event.target.value)}
+              placeholder="Enter password to edit"
+              aria-describedby="owner-password-hint"
+            />
+            <p id="owner-password-hint" className="text-xs text-muted-foreground">
+              {ownerPassword && !ownerUnlocked
+                ? "Incorrect password. Store details remain locked."
+                : "Enter the product owner password to enable these fields."}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="store-category">Store category</Label>
+            <Select
+              value={storeDetails.category}
+              onValueChange={(category) => setStoreDetails((details) => ({ ...details, category }))}
+              disabled={!ownerUnlocked}
+            >
+              <SelectTrigger id="store-category" className="w-full">
+                <SelectValue placeholder="Select a category" />
+              </SelectTrigger>
+              <SelectContent>
+                {STORE_CATEGORIES.map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="store-name">Shop name</Label>
+            <Input
+              id="store-name"
+              value={storeDetails.name}
+              onChange={(event) => setStoreDetails((details) => ({ ...details, name: event.target.value }))}
+              placeholder="e.g. Main Street Books"
+              disabled={!ownerUnlocked}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="store-location">Location <span className="text-muted-foreground">(optional)</span></Label>
+            <Input
+              id="store-location"
+              value={storeDetails.location}
+              onChange={(event) => setStoreDetails((details) => ({ ...details, location: event.target.value }))}
+              placeholder="e.g. Colombo"
+              disabled={!ownerUnlocked}
+            />
+          </div>
+
+          <Button className="w-full sm:w-auto" onClick={() => void saveStoreDetails()} disabled={!ownerUnlocked || storeSaving}>
+            {storeSaving ? "Saving..." : "Save store details"}
+          </Button>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -218,14 +340,32 @@ export function SettingsPanel() {
 
       <Separator />
 
-      <div className="flex gap-2">
-        <Button onClick={() => void persist()} disabled={saving}>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Button className="w-full sm:w-auto" onClick={() => void persist()} disabled={saving}>
           {saving ? "Saving..." : "Save theme"}
         </Button>
-        <Button variant="outline" onClick={() => void reset()} disabled={saving}>
+        <Button className="w-full sm:w-auto" variant="outline" onClick={() => void reset()} disabled={saving}>
           Reset to default
         </Button>
       </div>
+
+      <Separator />
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Contact, help & support</CardTitle>
+          <CardDescription>
+            Need help with this POS? Contact the product owner for account,
+            setup, or technical support.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-1 text-sm">
+          <p className="font-medium">POS product owner</p>
+          <p className="text-muted-foreground">
+            Please use the support contact provided by your organization.
+          </p>
+        </CardContent>
+      </Card>
     </div>
   );
 }

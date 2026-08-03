@@ -215,9 +215,9 @@ export function PosTerminal() {
     <div className="flex min-h-0 flex-col gap-3 p-3 pb-28 md:h-[calc(100vh-6.5rem)] md:flex-row md:gap-4 md:p-4 md:pb-4">
       {/* ---------- Left: catalog ---------- */}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:flex sm:flex-wrap">
           <form
-            className="relative min-w-40 flex-1"
+            className="relative col-span-full min-w-0 sm:min-w-40 sm:flex-1"
             onSubmit={(e) => {
               e.preventDefault();
               const input = scanInputRef.current;
@@ -246,7 +246,7 @@ export function PosTerminal() {
             <Camera className="size-4" />
           </Button>
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-36 sm:w-44">
+            <SelectTrigger className="w-full sm:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

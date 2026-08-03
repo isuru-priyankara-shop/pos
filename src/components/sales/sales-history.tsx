@@ -125,9 +125,9 @@ export function SalesHistory({ initialSales }: { initialSales: SaleRow[] }) {
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4">
       <div>
-        <h1 className="text-xl font-semibold">Sales</h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Sales</h1>
         <p className="text-sm text-muted-foreground">
           {approvalNeeded
             ? `Voids above ${formatCurrency(threshold)} require manager sign-off.`
@@ -135,7 +135,55 @@ export function SalesHistory({ initialSales }: { initialSales: SaleRow[] }) {
         </p>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      {/* Mobile cards */}
+      <div className="space-y-2 sm:hidden">
+        {sales.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No sales yet. Ring one up at the Register.
+          </p>
+        ) : (
+          sales.map((s) => (
+            <div key={s.id} className="rounded-lg border bg-card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">
+                    {new Date(s.sale_date).toLocaleString()}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {s.customer?.name ?? "Walk-in"} ·{" "}
+                    {s.items.reduce((acc, i) => acc + i.quantity, 0)} item
+                    {s.items.reduce((acc, i) => acc + i.quantity, 0) === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <p className="shrink-0 text-base font-semibold">
+                  {formatCurrency(s.grand_total)}
+                </p>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className={STATUS_STYLE[s.status]}>{s.status}</Badge>
+                  {s.created_offline && (
+                    <Badge variant="outline" className="text-[10px]">
+                      offline
+                    </Badge>
+                  )}
+                  {s.payments.length > 0 && (
+                    <span className="text-xs uppercase text-muted-foreground">
+                      {s.payments.map((p) => p.method).join(", ")}
+                    </span>
+                  )}
+                </div>
+                <Button variant="ghost" size="sm" onClick={() => setSelected(s)}>
+                  <Eye className="size-4" /> View
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-lg border bg-card sm:block">
         <Table>
           <TableHeader>
             <TableRow>

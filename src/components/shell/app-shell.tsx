@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart3,
@@ -15,7 +16,7 @@ import {
   UserCog,
   Users,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth-provider";
@@ -36,6 +37,13 @@ import {
 } from "@/lib/auth";
 import type { Profile } from "@/lib/db.types";
 import { cn } from "@/lib/utils";
+import {
+  EMPTY_STORE_DETAILS,
+  hasCompletedStoreDetails,
+  STORE_DETAILS_EVENT,
+  storeDetailsFromRows,
+  type StoreDetails,
+} from "@/lib/store-details";
 
 type Icon = typeof Store;
 
@@ -87,9 +95,31 @@ export function AppShell({
   const router = useRouter();
   const { supabase } = useAuth();
   const p = profile as Profile | null;
+  const [storeDetails, setStoreDetails] = useState<StoreDetails>(EMPTY_STORE_DETAILS);
+  const [storeDetailsLoaded, setStoreDetailsLoaded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  const items = NAV_ITEMS.filter((item) => item.show(p));
+  const loadStoreDetails = useCallback(async () => {
+    const { data } = await supabase
+      .from("app_settings")
+      .select("key, value")
+      .in("key", ["store_category", "store_name", "store_location"]);
+    setStoreDetails(storeDetailsFromRows(data));
+    setStoreDetailsLoaded(true);
+  }, [supabase]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadStoreDetails);
+    window.addEventListener(STORE_DETAILS_EVENT, loadStoreDetails);
+    return () => window.removeEventListener(STORE_DETAILS_EVENT, loadStoreDetails);
+  }, [loadStoreDetails]);
+
+  const needsStoreSetup = !storeDetailsLoaded || !hasCompletedStoreDetails(storeDetails);
+  const items = needsStoreSetup
+    ? NAV_ITEMS.filter((item) => item.href === "/settings")
+    : NAV_ITEMS.filter((item) => item.show(p));
   const active = items.find((item) => isActive(pathname, item.href));
+  const storeName = storeDetails.name.trim() || "Store POS";
 
   async function signOut() {
     await supabase.auth.signOut();
@@ -101,12 +131,12 @@ export function AppShell({
   const sidebar = (
     <>
       <Link
-        href="/pos"
+        href={needsStoreSetup ? "/settings" : "/pos"}
         className="flex h-14 shrink-0 items-center justify-center border-b text-primary"
-        aria-label="Store POS home"
-        title="Store POS"
+        aria-label={`${storeName} home`}
+        title={storeName}
       >
-        <Store className="size-5" />
+        <Image src="/company-logo.svg" alt="" width={32} height={32} />
       </Link>
       <nav className="flex flex-1 flex-col items-center gap-1.5 overflow-y-auto py-3">
         {items.map((item) => {
@@ -154,7 +184,7 @@ export function AppShell({
 
       <div className="flex min-h-screen flex-1 flex-col lg:pl-16">
         <header className="sticky top-0 z-30 flex h-14 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur">
-          <Sheet>
+          <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
             <SheetTrigger asChild>
               <Button
                 variant="ghost"
@@ -165,10 +195,13 @@ export function AppShell({
                 <Menu className="size-5" />
               </Button>
             </SheetTrigger>
-            <SheetContent side="left" className="w-64 gap-2 p-0">
+            <SheetContent side="left" className="w-[min(16rem,85vw)] gap-2 p-0">
               <SheetHeader className="border-b p-4">
-                <SheetTitle className="flex items-center justify-between text-left">
-                  <span>Store POS</span>
+                <SheetTitle className="flex items-center justify-between gap-3 pr-10 text-left">
+                  <span className="flex items-center gap-2">
+                    <Image src="/company-logo.svg" alt="" width={24} height={24} />
+                    {storeName}
+                  </span>
                   <Badge variant="outline" className="capitalize">
                     {p?.role ?? "staff"}
                   </Badge>
@@ -183,6 +216,7 @@ export function AppShell({
                       <Link
                         key={item.href}
                         href={item.href}
+                        onClick={() => setMenuOpen(false)}
                         className={cn(
                           "flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium",
                           isCurrent
@@ -210,9 +244,19 @@ export function AppShell({
           </Sheet>
 
           <div className="flex min-w-0 items-center gap-2">
+            <Image
+              src="/company-logo.svg"
+              alt=""
+              width={28}
+              height={28}
+              className="shrink-0 sm:hidden"
+            />
             <h1 className="truncate text-sm font-semibold tracking-tight">
-              {active?.label ?? "Dashboard"}
+              {needsStoreSetup ? "Complete store setup" : active?.label ?? "Dashboard"}
             </h1>
+            <span className="hidden truncate text-xs text-muted-foreground sm:inline">
+              {storeName}
+            </span>
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-1.5">
@@ -231,7 +275,7 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="flex-1 p-4 lg:p-6">{children}</main>
+        <main className="min-w-0 flex-1 p-3 sm:p-4 lg:p-6">{children}</main>
       </div>
     </div>
   );

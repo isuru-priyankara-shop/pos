@@ -174,7 +174,7 @@ export function StaffManagement({
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Staff</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Staff</h1>
           <p className="text-sm text-muted-foreground">
             Create login accounts and manage roles. New users get a password set by you and can
             sign in immediately.
@@ -185,7 +185,46 @@ export function StaffManagement({
         </Button>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      {/* Mobile cards */}
+      <div className="space-y-2 sm:hidden">
+        {staff.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            No staff yet. Click &quot;Add staff&quot; to create the first account.
+          </p>
+        ) : (
+          staff.map((p) => (
+            <div key={p.id} className="rounded-lg border bg-card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">
+                    {p.full_name}
+                    {p.id === currentUserId && (
+                      <Badge variant="outline" className="ml-2 text-xs">
+                        you
+                      </Badge>
+                    )}
+                  </p>
+                  <p className="truncate text-xs text-muted-foreground">{p.email ?? "—"}</p>
+                </div>
+                <Badge className={ROLE_STYLE[p.role]}>{ROLE_LABEL[p.role]}</Badge>
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                {p.is_active ? (
+                  <Badge variant="secondary">Active</Badge>
+                ) : (
+                  <Badge variant="destructive">Inactive</Badge>
+                )}
+                <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
+                  <Pencil className="size-4" /> Edit
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-lg border bg-card sm:block">
         <Table>
           <TableHeader>
             <TableRow>

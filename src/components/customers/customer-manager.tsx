@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-provider";
 import type { Customer } from "@/lib/db.types";
@@ -65,15 +65,16 @@ export function CustomerManager({
   const filtered = searchCustomers(customers, search);
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Customers</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Customers</h1>
           <p className="text-sm text-muted-foreground">
             {customers.length} registered customer{customers.length === 1 ? "" : "s"}
           </p>
         </div>
         <Button
+          className="w-full sm:w-auto"
           onClick={() => {
             setEditingCustomer(null);
             setEditorOpen(true);
@@ -90,7 +91,57 @@ export function CustomerManager({
         className="w-full sm:max-w-xs"
       />
 
-      <div className="rounded-lg border bg-card">
+      {/* Mobile cards */}
+      <div className="space-y-2 sm:hidden">
+        {filtered.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">No customers match.</p>
+        ) : (
+          filtered.map((c) => (
+            <div key={c.id} className="rounded-lg border bg-card p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate font-medium">{c.name}</p>
+                  <p className="truncate text-xs text-muted-foreground">
+                    {[c.phone, c.email].filter(Boolean).join(" · ") || "—"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title="Edit customer"
+                    onClick={() => {
+                      setEditingCustomer(c);
+                      setEditorOpen(true);
+                    }}
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                  {canDelete && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      title="Delete customer"
+                      onClick={() => setDeleting(c)}
+                    >
+                      <Trash2 className="size-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">{c.loyalty_points} pts</Badge>
+                {c.credit_balance > 0 && (
+                  <Badge variant="outline">Rs {c.credit_balance.toLocaleString("en-LK")}</Badge>
+                )}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-lg border bg-card sm:block">
         <Table>
           <TableHeader>
             <TableRow>

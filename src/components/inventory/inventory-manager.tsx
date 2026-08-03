@@ -237,11 +237,11 @@ export function InventoryManager({
             )}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setCategoriesOpen(true)}>
+        <div className="flex w-full gap-2 sm:w-auto">
+          <Button className="flex-1 sm:flex-none" variant="outline" onClick={() => setCategoriesOpen(true)}>
             <Tags className="size-4" /> Categories
           </Button>
-          <Button onClick={() => { setEditingProduct(null); setEditorOpen(true); }}>
+          <Button className="flex-1 sm:flex-none" onClick={() => { setEditingProduct(null); setEditorOpen(true); }}>
             <Plus className="size-4" /> Add product
           </Button>
         </div>
@@ -279,7 +279,92 @@ export function InventoryManager({
         </Select>
       </div>
 
-      <div className="overflow-hidden rounded-lg border bg-card shadow-card">
+      {/* Mobile cards */}
+      <div className="space-y-2 sm:hidden">
+        {filtered.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">No products match.</p>
+        ) : (
+          filtered.map((p) => {
+            const active = p.variants.filter((v) => v.is_active);
+            const totalStock = active.reduce((acc, v) => acc + v.stock_qty, 0);
+            const minPrice = active.length ? Math.min(...active.map((v) => v.price)) : 0;
+            const status = productStatus(p);
+            return (
+              <div
+                key={p.id}
+                className={cn(
+                  "rounded-lg border bg-card p-3",
+                  status.label === "out" && "border-destructive/40 bg-destructive/5",
+                  status.label === "low" && "border-warning/40 bg-warning/5",
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-muted">
+                      {p.image_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" />
+                      ) : null}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">{p.name}</p>
+                      <p className="truncate text-xs text-muted-foreground">{p.sku_prefix ?? ""}</p>
+                    </div>
+                  </div>
+                  <Badge className={status.badge}>{STATUS_LABEL[status.label]}</Badge>
+                </div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Category</dt>
+                    <dd className="truncate font-medium">{p.category?.name ?? "—"}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Variants</dt>
+                    <dd className="font-medium">{active.length}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Stock</dt>
+                    <dd
+                      className={cn(
+                        "font-medium",
+                        status.label === "out" && "text-destructive",
+                        status.label === "low" && "text-warning",
+                      )}
+                    >
+                      {totalStock}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-muted-foreground">Price from</dt>
+                    <dd className="font-medium">{active.length ? formatCurrency(minPrice) : "—"}</dd>
+                  </div>
+                </dl>
+                <div className="mt-2 flex justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setEditingProduct(p); setEditorOpen(true); }}
+                  >
+                    <Pencil className="size-4" /> Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    title={p.is_active ? "Disable product" : "Enable product"}
+                    aria-label={p.is_active ? `Disable ${p.name}` : `Enable ${p.name}`}
+                    onClick={() => toggleActive(p)}
+                  >
+                    <Power className={cn("size-4", !p.is_active && "text-muted-foreground")} />
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Desktop table */}
+      <div className="hidden overflow-hidden rounded-lg border bg-card shadow-card sm:block">
         <Table>
           <TableHeader>
             <TableRow>
