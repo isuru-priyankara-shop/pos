@@ -282,6 +282,20 @@ function dateKey(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * Revenue growth between the two halves of a daily series
+ * (e.g. last 7 days vs the 7 before them). Returns null when
+ * there is no prior revenue to compare against.
+ */
+export function growthPct(rows: DailyRow[]): number | null {
+  if (rows.length < 2) return null;
+  const mid = Math.floor(rows.length / 2);
+  const prior = round2(rows.slice(0, mid).reduce((a, r) => a + r.revenue, 0));
+  const recent = round2(rows.slice(mid).reduce((a, r) => a + r.revenue, 0));
+  if (prior <= 0) return recent > 0 ? 100 : null;
+  return round2(((recent - prior) / prior) * 100);
+}
+
 export function variantLabel(size: string | null, color: string | null): string {
   return [size, color].filter(Boolean).join(" · ") || "—";
 }

@@ -3,6 +3,7 @@ import {
   aggregateSales,
   bestSellers,
   dailyBreakdown,
+  growthPct,
   paymentSplit,
   periodRange,
   slowMovers,
@@ -217,5 +218,49 @@ describe("dailyBreakdown", () => {
     expect(day2.date).toBe("2026-08-02");
     expect(day2.revenue).toBe(4000);
     expect(day2.orders).toBe(1);
+  });
+});
+
+describe("growthPct", () => {
+  it("measures growth between the two halves of a daily series", () => {
+    const rows = [
+      { date: "a", label: "a", revenue: 100, orders: 1 },
+      { date: "b", label: "b", revenue: 100, orders: 1 },
+      { date: "c", label: "c", revenue: 150, orders: 2 },
+      { date: "d", label: "d", revenue: 150, orders: 2 },
+    ];
+    expect(growthPct(rows)).toBe(50);
+  });
+
+  it("reports a decline as a negative percentage", () => {
+    const rows = [
+      { date: "a", label: "a", revenue: 200, orders: 2 },
+      { date: "b", label: "b", revenue: 200, orders: 2 },
+      { date: "c", label: "c", revenue: 100, orders: 1 },
+      { date: "d", label: "d", revenue: 100, orders: 1 },
+    ];
+    expect(growthPct(rows)).toBe(-50);
+  });
+
+  it("returns null when there is no baseline revenue and nothing recent", () => {
+    const rows = [
+      { date: "a", label: "a", revenue: 0, orders: 0 },
+      { date: "b", label: "b", revenue: 0, orders: 0 },
+      { date: "c", label: "c", revenue: 0, orders: 0 },
+      { date: "d", label: "d", revenue: 0, orders: 0 },
+    ];
+    expect(growthPct(rows)).toBeNull();
+    expect(growthPct([])).toBeNull();
+    expect(growthPct([rows[0]])).toBeNull();
+  });
+
+  it("returns 100 when starting from no prior revenue", () => {
+    const rows = [
+      { date: "a", label: "a", revenue: 0, orders: 0 },
+      { date: "b", label: "b", revenue: 0, orders: 0 },
+      { date: "c", label: "c", revenue: 50, orders: 1 },
+      { date: "d", label: "d", revenue: 50, orders: 1 },
+    ];
+    expect(growthPct(rows)).toBe(100);
   });
 });

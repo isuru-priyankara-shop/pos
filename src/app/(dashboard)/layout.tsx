@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createServerClient_ } from "@/lib/supabase/server";
 import { AuthProvider } from "@/components/auth-provider";
-import { AppNav } from "@/components/app-nav";
+import { AppShell } from "@/components/shell/app-shell";
 
 export default async function DashboardLayout({
   children,
@@ -28,10 +28,7 @@ export default async function DashboardLayout({
 
   return (
     <AuthProvider>
-      <div className="flex min-h-screen flex-col">
-        <AppNav profile={profile} />
-        <main className="flex-1">{children}</main>
-      </div>
+      <AppShell profile={profile}>{children}</AppShell>
     </AuthProvider>
   );
 }

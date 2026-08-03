@@ -1,23 +1,24 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { RefreshCw, TrendingDown } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
+
 import { useAuth } from "@/components/auth-provider";
 import {
   aggregateSales,
   bestSellers,
   completedSaleIds,
   dailyBreakdown,
+  growthPct,
   paymentSplit,
   periodRangeISO,
-  slowMovers,
   type ReportItemRow,
   type ReportPaymentRow,
   type ReportPeriod,
   type ReportSaleRow,
   type ReportVariantRow,
 } from "@/lib/reporting";
-import { formatCurrency } from "@/lib/money";
+import { formatCurrency, round2 } from "@/lib/money";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,14 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 const PERIOD_OPTIONS: { value: ReportPeriod; label: string }[] = [
   { value: "today", label: "Today" },
@@ -53,9 +47,91 @@ interface ReportData {
   variants: ReportVariantRow[];
 }
 
+const SALE_STATUS_BADGE: Record<string, string> = {
+  completed: "bg-primary/10 text-primary",
+  void: "bg-warning/10 text-warning",
+};
+
+function RevenueLine({
+  rows,
+  className,
+}: {
+  rows: { label: string; revenue: number }[];
+  className?: string;
+}) {
+  const W = 640;
+  const H = 200;
+  const padX = 8;
+  const padY = 24;
+  const max = Math.max(1, ...rows.map((r) => r.revenue));
+  const step = rows.length > 1 ? (W - padX * 2) / (rows.length - 1) : 0;
+  const points = rows.map((r, i) => ({
+    x: padX + step * i,
+    y: H - padY - (r.revenue / max) * (H - padY * 2),
+  }));
+  const line = points.map((p) => `${p.x},${p.y}`).join(" ");
+  const area = `M${points[0]?.x ?? 0},${H - padY} L${line
+    .split(" ")
+    .join(" L")} L${points[points.length - 1]?.x ?? W - padX},${H - padY} Z`;
+  const mid = points[Math.floor(points.length / 2)];
+
+  return (
+    <svg
+      viewBox={`0 0 ${W} ${H}`}
+      className={cn("h-48 w-full text-primary", className)}
+      role="img"
+      aria-label="Revenue trend"
+    >
+      <defs>
+        <linearGradient id="revenue-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      {[0.25, 0.5, 0.75, 1].map((f) => (
+        <line
+          key={f}
+          x1={0}
+          x2={W}
+          y1={H - padY * f}
+          y2={H - padY * f}
+          className="stroke-border"
+          strokeWidth={1}
+          strokeDasharray="4 4"
+        />
+      ))}
+      {area && <path d={area} fill="url(#revenue-fill)" />}
+      {line && (
+        <polyline
+          points={line}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={2.5}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+      {points.map((p) => (
+        <circle key={p.x} cx={p.x} cy={p.y} r={3} fill="currentColor" />
+      ))}
+      <text x={padX} y={H - 6} className="fill-muted-foreground" fontSize={11}>
+        {rows[0]?.label ?? ""}
+      </text>
+      {mid && (
+        <text x={mid.x} y={H - 6} textAnchor="middle" className="fill-muted-foreground" fontSize={11}>
+          {rows[Math.floor(rows.length / 2)]?.label ?? ""}
+        </text>
+      )}
+      <text x={W - padX} y={H - 6} textAnchor="end" className="fill-muted-foreground" fontSize={11}>
+        {rows[rows.length - 1]?.label ?? ""}
+      </text>
+    </svg>
+  );
+}
+
 export function ReportsManager() {
   const { supabase } = useAuth();
-  const [period, setPeriod] = useState<ReportPeriod>("today");
+  const [period, setPeriod] = useState<ReportPeriod>("7d");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
@@ -142,23 +218,64 @@ export function ReportsManager() {
 
   const loading = data === null;
   const totals = data ? aggregateSales(data.sales, data.items) : null;
-  const completed = data ? completedSaleIds(data.sales) : new Set<string>();
-  const sellers = data ? bestSellers(data.items, completed, 10) : [];
-  const movers = data ? slowMovers(data.variants, data.items, completed) : [];
+  const completed = useMemo(
+    () => (data ? completedSaleIds(data.sales) : new Set<string>()),
+    [data],
+  );
+  const sellers = useMemo(
+    () => (data ? bestSellers(data.items, completed, 5) : []),
+    [data, completed],
+  );
   const split = data ? paymentSplit(data.payments) : [];
   const daily = data ? dailyBreakdown(data.sales, data.items, 14) : [];
-  const maxDaily = Math.max(1, ...daily.map((d) => d.revenue));
+  const growth = growthPct(daily);
+
+  const avgOrder = useMemo(
+    () => (totals && totals.orders > 0 ? round2(totals.revenue / totals.orders) : 0),
+    [totals],
+  );
+
+  const recent = useMemo(() => {
+    if (!data) return [];
+    const totalsBySale = new Map<string, number>();
+    for (const it of data.items) {
+      if (!completed.has(it.sale_id)) continue;
+      totalsBySale.set(it.sale_id, round2((totalsBySale.get(it.sale_id) ?? 0) + it.line_total));
+    }
+    return [...data.sales]
+      .sort((a, b) => b.sale_date.localeCompare(a.sale_date))
+      .slice(0, 8)
+      .map((s) => ({
+        id: s.id,
+        status: s.status,
+        sale_date: s.sale_date,
+        total: totalsBySale.get(s.id) ?? 0,
+      }));
+  }, [data, completed]);
+
+  const topProducts = useMemo(
+    () =>
+      sellers.map((s) => ({
+        name: s.productName,
+        revenue: s.revenue,
+        units: s.units,
+      })),
+    [sellers],
+  );
+  const maxProduct = Math.max(1, ...topProducts.map((p) => p.revenue));
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Sales reporting</h1>
-          <p className="text-sm text-muted-foreground">Completed sales only; voids counted separately.</p>
+          <h1 className="text-2xl font-semibold tracking-tight">Analytics</h1>
+          <p className="text-sm text-muted-foreground">
+            Completed sales only; voids counted separately.
+          </p>
         </div>
         <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <Select value={period} onValueChange={changePeriod}>
-            <SelectTrigger className="w-full sm:w-40">
+            <SelectTrigger className="w-full sm:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -171,8 +288,24 @@ export function ReportsManager() {
           </Select>
           {period === "custom" && (
             <>
-              <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setData(null); }} className="w-full sm:w-40" />
-              <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setData(null); }} className="w-full sm:w-40" />
+              <Input
+                type="date"
+                value={customFrom}
+                onChange={(e) => {
+                  setCustomFrom(e.target.value);
+                  setData(null);
+                }}
+                className="w-full sm:w-40"
+              />
+              <Input
+                type="date"
+                value={customTo}
+                onChange={(e) => {
+                  setCustomTo(e.target.value);
+                  setData(null);
+                }}
+                className="w-full sm:w-40"
+              />
             </>
           )}
           <Button variant="outline" size="icon" onClick={() => changePeriod(period)} title="Refresh">
@@ -182,180 +315,207 @@ export function ReportsManager() {
       </div>
 
       {error ? (
-        <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>
+        <p className="rounded-lg border border-destructive/20 bg-destructive/10 p-3 text-sm text-destructive">
+          {error}
+        </p>
       ) : null}
 
       {loading ? (
         <p className="py-16 text-center text-sm text-muted-foreground">Loading…</p>
       ) : (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Revenue</CardTitle>
+          {/* Stat cards */}
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="shadow-card">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Revenue
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-semibold">{formatCurrency(totals?.revenue ?? 0)}</p>
+                <p className="text-2xl font-semibold tracking-tight">
+                  {formatCurrency(totals?.revenue ?? 0)}
+                </p>
+                {growth != null && (
+                  <p
+                    className={cn(
+                      "mt-1 inline-flex items-center gap-1 text-xs font-medium",
+                      growth >= 0 ? "text-primary" : "text-destructive",
+                    )}
+                  >
+                    {growth >= 0 ? <TrendingUp className="size-3.5" /> : <TrendingDown className="size-3.5" />}
+                    {growth >= 0 ? "+" : ""}
+                    {growth}% vs prior 7 days
+                  </p>
+                )}
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Orders</CardTitle>
+            <Card className="shadow-card">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Transactions
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-semibold">{totals?.orders ?? 0}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Items sold</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold">{totals?.itemsSold ?? 0}</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Profit</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-2xl font-semibold">{formatCurrency(totals?.profit ?? 0)}</p>
-                <p className="text-xs text-muted-foreground">
-                  {totals?.marginPct != null ? (
-                    <span className={totals.marginPct >= 0 ? "text-emerald-600" : "text-red-600"}>
-                      {totals.marginPct}% margin
-                    </span>
-                  ) : (
-                    "Set cost prices to see margin"
-                  )}
+                <p className="text-2xl font-semibold tracking-tight">{totals?.orders ?? 0}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {totals?.itemsSold ?? 0} items sold · {totals?.voids ?? 0} voided
                 </p>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">Voided sales</CardTitle>
+            <Card className="shadow-card">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Average order
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-2xl font-semibold">{totals?.voids ?? 0}</p>
+                <p className="text-2xl font-semibold tracking-tight">{formatCurrency(avgOrder)}</p>
+                <p className="mt-1 text-xs text-muted-foreground">Revenue ÷ transactions</p>
+              </CardContent>
+            </Card>
+            <Card className="shadow-card">
+              <CardHeader className="pb-1">
+                <CardTitle className="text-sm font-medium text-muted-foreground">
+                  Profit
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-semibold tracking-tight">
+                  {formatCurrency(totals?.profit ?? 0)}
+                </p>
+                {totals?.marginPct != null ? (
+                  <p className="mt-1 text-xs font-medium text-primary">{totals.marginPct}% margin</p>
+                ) : (
+                  <p className="mt-1 text-xs text-muted-foreground">Set cost prices to see margin</p>
+                )}
               </CardContent>
             </Card>
           </div>
 
-          {split.length > 0 && (
-            <Card>
+          {/* Trend + top products */}
+          <div className="grid gap-3 lg:grid-cols-5">
+            <Card className="lg:col-span-3">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Sales trend</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {daily.every((d) => d.revenue === 0) ? (
+                  <p className="py-16 text-center text-sm text-muted-foreground">
+                    No sales in this period.
+                  </p>
+                ) : (
+                  <RevenueLine rows={daily} />
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Top products</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {topProducts.length === 0 ? (
+                  <p className="py-12 text-center text-sm text-muted-foreground">
+                    No sales in this period.
+                  </p>
+                ) : (
+                  topProducts.map((p) => (
+                    <div key={p.name} className="space-y-1">
+                      <div className="flex items-center justify-between gap-2 text-sm">
+                        <span className="truncate font-medium">{p.name}</span>
+                        <span className="shrink-0 font-semibold">{formatCurrency(p.revenue)}</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{ width: `${Math.max(3, (p.revenue / maxProduct) * 100)}%` }}
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">{p.units} units</p>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Recent transactions + payment split */}
+          <div className="grid gap-3 lg:grid-cols-5">
+            <Card className="lg:col-span-3">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Recent transactions</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {recent.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-muted-foreground">
+                    No transactions in this period.
+                  </p>
+                ) : (
+                  <ul className="divide-y">
+                    {recent.map((r) => (
+                      <li key={r.id} className="flex items-center justify-between gap-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium">
+                            {new Date(r.sale_date).toLocaleString("en-LK", {
+                              month: "short",
+                              day: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </p>
+                          <p className="truncate font-mono text-xs text-muted-foreground">
+                            #{r.id.slice(0, 8)}
+                          </p>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-3">
+                          <Badge className={SALE_STATUS_BADGE[r.status] ?? "bg-muted text-muted-foreground"}>
+                            {r.status}
+                          </Badge>
+                          <span className="w-20 text-right font-semibold">
+                            {formatCurrency(r.total)}
+                          </span>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="lg:col-span-2">
               <CardHeader className="pb-2">
                 <CardTitle className="text-sm font-medium">Payment split</CardTitle>
               </CardHeader>
-              <CardContent className="flex flex-wrap gap-2">
-                {split.map((s) => (
-                  <Badge key={s.method} variant="secondary" className="px-3 py-1 text-sm capitalize">
-                    {s.method}: {formatCurrency(s.amount)}
-                  </Badge>
-                ))}
+              <CardContent>
+                {split.length === 0 ? (
+                  <p className="py-10 text-center text-sm text-muted-foreground">
+                    No payments in this period.
+                  </p>
+                ) : (
+                  <div className="space-y-3">
+                    {split.map((s) => {
+                      const pct = totals && totals.revenue > 0 ? Math.round((s.amount / totals.revenue) * 100) : 0;
+                      return (
+                        <div key={s.method} className="space-y-1">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="capitalize">{s.method}</span>
+                            <span className="font-semibold">{formatCurrency(s.amount)}</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-primary/70"
+                              style={{ width: `${Math.max(3, pct)}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
-          )}
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Daily revenue (last 14 days)</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-1.5">
-              {daily.every((d) => d.revenue === 0) ? (
-                <p className="py-4 text-center text-sm text-muted-foreground">No sales in this period.</p>
-              ) : (
-                daily.map((d) => (
-                  <div key={d.date} className="flex items-center gap-3 text-sm">
-                    <span className="w-14 shrink-0 text-muted-foreground sm:w-16">{d.label}</span>
-                    <div className="h-2.5 min-w-0 flex-1 rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary/70"
-                        style={{ width: `${Math.max(2, (d.revenue / maxDaily) * 100)}%` }}
-                      />
-                    </div>
-                    <span className="w-20 shrink-0 text-right font-medium sm:w-24">{formatCurrency(d.revenue)}</span>
-                    <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground sm:block">
-                      {d.orders} ord.
-                    </span>
-                  </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Best sellers</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {sellers.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">No sales in this period.</p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-10">#</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Size / Color</TableHead>
-                      <TableHead className="text-right">Units</TableHead>
-                      <TableHead className="text-right">Revenue</TableHead>
-                      <TableHead className="text-right">Profit</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sellers.map((s, i) => (
-                      <TableRow key={s.variantId}>
-                        <TableCell className="text-muted-foreground">{i + 1}</TableCell>
-                        <TableCell className="font-medium">{s.productName}</TableCell>
-                        <TableCell className="text-muted-foreground">{s.sizeColor || "—"}</TableCell>
-                        <TableCell className="text-right">{s.units}</TableCell>
-                        <TableCell className="text-right">{formatCurrency(s.revenue)}</TableCell>
-                        <TableCell className="text-right">{s.profit != null ? formatCurrency(s.profit) : "—"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm font-medium">
-                <TrendingDown className="size-4 text-amber-600" /> Slow movers
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {movers.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  Every in-stock variant has sold in this period.
-                </p>
-              ) : (
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Size / Color</TableHead>
-                      <TableHead className="text-right">In stock</TableHead>
-                      <TableHead className="text-right">Sold in period</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {movers.map((m) => (
-                      <TableRow key={m.variantId}>
-                        <TableCell className="font-medium">{m.productName}</TableCell>
-                        <TableCell className="text-muted-foreground">{m.sizeColor || "—"}</TableCell>
-                        <TableCell className="text-right">{m.stockQty}</TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant="secondary">{m.unitsSold} units</Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
+          </div>
         </>
       )}
     </div>

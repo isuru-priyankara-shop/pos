@@ -1,7 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, Tags } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus, Power, Tags } from "lucide-react";
+import { toast } from "sonner";
+
 import { useAuth } from "@/components/auth-provider";
 import type { Category } from "@/lib/db.types";
 import { variantStatus, type ProductRow } from "@/lib/inventory";
@@ -26,13 +28,61 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 
 const PRODUCT_STATUS_BADGE = {
-  in_stock: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
-  low: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
-  out: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
-  disabled: "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+  in_stock: "bg-primary/10 text-primary",
+  low: "bg-warning/10 text-warning",
+  out: "bg-destructive/10 text-destructive",
+  disabled: "bg-muted text-muted-foreground",
 } as const;
+
+const STATUS_RANK: Record<string, number> = {
+  out: 0,
+  low: 1,
+  in_stock: 2,
+  disabled: 3,
+  no_variants: 4,
+};
+
+type SortKey = "name" | "category" | "variants" | "stock" | "price" | "status";
+
+interface SortState {
+  key: SortKey;
+  dir: "asc" | "desc";
+}
+
+function SortHead({
+  label,
+  sortKey,
+  sort,
+  onToggle,
+  className,
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: SortState;
+  onToggle: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = sort.key === sortKey;
+  const Icon = active ? (sort.dir === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onToggle(sortKey)}
+        className={cn(
+          "inline-flex items-center gap-1 uppercase tracking-wide transition-colors hover:text-foreground",
+          active ? "text-primary" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        <Icon className="size-3.5" />
+      </button>
+    </TableHead>
+  );
+}
 
 export function InventoryManager({
   initialProducts,
@@ -47,6 +97,7 @@ export function InventoryManager({
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out">("all");
+  const [sort, setSort] = useState<SortState>({ key: "name", dir: "asc" });
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
@@ -74,7 +125,7 @@ export function InventoryManager({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return products.filter((p) => {
+    const list = products.filter((p) => {
       if (categoryFilter !== "all" && p.category_id !== categoryFilter) return false;
       if (statusFilter !== "all") {
         const worst = p.variants.reduce<"in_stock" | "low" | "out">((acc, v) => {
@@ -93,30 +144,93 @@ export function InventoryManager({
         p.variants.some((v) => v.barcode.toLowerCase().includes(q))
       );
     });
-  }, [products, search, categoryFilter, statusFilter]);
+
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      const aActive = a.variants.filter((v) => v.is_active);
+      const bActive = b.variants.filter((v) => v.is_active);
+      let cmp = 0;
+      switch (sort.key) {
+        case "name":
+          cmp = a.name.localeCompare(b.name);
+          break;
+        case "category":
+          cmp = (a.category?.name ?? "").localeCompare(b.category?.name ?? "");
+          break;
+        case "variants":
+          cmp = aActive.length - bActive.length;
+          break;
+        case "stock": {
+          const aStock = aActive.reduce((acc, v) => acc + v.stock_qty, 0);
+          const bStock = bActive.reduce((acc, v) => acc + v.stock_qty, 0);
+          cmp = aStock - bStock;
+          break;
+        }
+        case "price": {
+          const aPrice = aActive.length ? Math.min(...aActive.map((v) => v.price)) : -1;
+          const bPrice = bActive.length ? Math.min(...bActive.map((v) => v.price)) : -1;
+          cmp = aPrice - bPrice;
+          break;
+        }
+        case "status":
+          cmp = STATUS_RANK[productStatus(a).label] - STATUS_RANK[productStatus(b).label];
+          break;
+      }
+      return sort.dir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [products, search, categoryFilter, statusFilter, sort]);
 
   function productStatus(p: ProductRow): { label: string; badge: string } {
-    if (!p.is_active) return { label: "Disabled", badge: PRODUCT_STATUS_BADGE.disabled };
+    if (!p.is_active) return { label: "disabled", badge: PRODUCT_STATUS_BADGE.disabled };
     const active = p.variants.filter((v) => v.is_active);
-    if (active.length === 0) return { label: "No variants", badge: PRODUCT_STATUS_BADGE.disabled };
+    if (active.length === 0) return { label: "no_variants", badge: PRODUCT_STATUS_BADGE.disabled };
     const total = active.reduce((acc, v) => acc + v.stock_qty, 0);
     const lowestReorder = Math.min(...active.map((v) => v.reorder_level));
-    if (total <= 0) return { label: "Out of stock", badge: PRODUCT_STATUS_BADGE.out };
-    if (total <= lowestReorder) return { label: "Low stock", badge: PRODUCT_STATUS_BADGE.low };
-    return { label: "In stock", badge: PRODUCT_STATUS_BADGE.in_stock };
+    if (total <= 0) return { label: "out", badge: PRODUCT_STATUS_BADGE.out };
+    if (total <= lowestReorder) return { label: "low", badge: PRODUCT_STATUS_BADGE.low };
+    return { label: "in_stock", badge: PRODUCT_STATUS_BADGE.in_stock };
+  }
+
+  const STATUS_LABEL: Record<string, string> = {
+    in_stock: "In stock",
+    low: "Low stock",
+    out: "Out of stock",
+    disabled: "Disabled",
+    no_variants: "No variants",
+  };
+
+  function toggleSort(key: SortKey) {
+    setSort((prev) =>
+      prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "asc" },
+    );
+  }
+
+  async function toggleActive(p: ProductRow) {
+    const next = !p.is_active;
+    const { error } = await supabase
+      .from("products")
+      .update({ is_active: next })
+      .eq("id", p.id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    toast.success(next ? `${p.name} enabled` : `${p.name} disabled`);
+    refresh();
   }
 
   return (
-    <div className="space-y-4 p-4">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">Inventory</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Inventory</h1>
           <p className="text-sm text-muted-foreground">
             {stats.low > 0 || stats.out > 0 ? (
               <span>
-                <span className="font-medium text-amber-600">{stats.low} low</span>
+                <span className="font-medium text-warning">{stats.low} low</span>
                 {" · "}
-                <span className="font-medium text-red-600">{stats.out} out of stock</span>
+                <span className="font-medium text-destructive">{stats.out} out of stock</span>
               </span>
             ) : (
               "All stock levels healthy"
@@ -165,16 +279,16 @@ export function InventoryManager({
         </Select>
       </div>
 
-      <div className="rounded-lg border bg-card">
+      <div className="overflow-hidden rounded-lg border bg-card shadow-card">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Product</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Variants</TableHead>
-              <TableHead>Total stock</TableHead>
-              <TableHead>Price from</TableHead>
-              <TableHead>Status</TableHead>
+              <SortHead label="Product" sortKey="name" sort={sort} onToggle={toggleSort} />
+              <SortHead label="Category" sortKey="category" sort={sort} onToggle={toggleSort} />
+              <SortHead label="Variants" sortKey="variants" sort={sort} onToggle={toggleSort} />
+              <SortHead label="Total stock" sortKey="stock" sort={sort} onToggle={toggleSort} />
+              <SortHead label="Price from" sortKey="price" sort={sort} onToggle={toggleSort} />
+              <SortHead label="Status" sortKey="status" sort={sort} onToggle={toggleSort} />
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -192,7 +306,13 @@ export function InventoryManager({
                 const minPrice = active.length ? Math.min(...active.map((v) => v.price)) : 0;
                 const status = productStatus(p);
                 return (
-                  <TableRow key={p.id}>
+                  <TableRow
+                    key={p.id}
+                    className={cn(
+                      status.label === "out" && "bg-destructive/5",
+                      status.label === "low" && "bg-warning/5",
+                    )}
+                  >
                     <TableCell>
                       <div className="flex items-center gap-3">
                         <div className="h-10 w-10 shrink-0 overflow-hidden rounded-md bg-muted">
@@ -209,19 +329,40 @@ export function InventoryManager({
                     </TableCell>
                     <TableCell>{p.category?.name ?? "—"}</TableCell>
                     <TableCell>{active.length}</TableCell>
-                    <TableCell>{totalStock}</TableCell>
+                    <TableCell
+                      className={cn(
+                        "font-medium",
+                        status.label === "out" && "text-destructive",
+                        status.label === "low" && "text-warning",
+                      )}
+                    >
+                      {totalStock}
+                    </TableCell>
                     <TableCell>{active.length ? formatCurrency(minPrice) : "—"}</TableCell>
                     <TableCell>
-                      <Badge className={status.badge}>{status.label}</Badge>
+                      <Badge className={status.badge}>{STATUS_LABEL[status.label]}</Badge>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => { setEditingProduct(p); setEditorOpen(true); }}
-                      >
-                        Edit
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title="Edit product"
+                          aria-label={`Edit ${p.name}`}
+                          onClick={() => { setEditingProduct(p); setEditorOpen(true); }}
+                        >
+                          <Pencil className="size-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          title={p.is_active ? "Disable product" : "Enable product"}
+                          aria-label={p.is_active ? `Disable ${p.name}` : `Enable ${p.name}`}
+                          onClick={() => toggleActive(p)}
+                        >
+                          <Power className={cn("size-4", !p.is_active && "text-muted-foreground")} />
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 );

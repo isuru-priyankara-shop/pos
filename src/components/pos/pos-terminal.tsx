@@ -212,7 +212,7 @@ export function PosTerminal() {
   }
 
   return (
-    <div className="flex min-h-0 flex-col gap-3 p-3 pb-28 md:h-[calc(100vh-3.5rem)] md:flex-row md:gap-4 md:p-4 md:pb-4">
+    <div className="flex min-h-0 flex-col gap-3 p-3 pb-28 md:h-[calc(100vh-6.5rem)] md:flex-row md:gap-4 md:p-4 md:pb-4">
       {/* ---------- Left: catalog ---------- */}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -271,12 +271,12 @@ export function PosTerminal() {
               key={p.id}
               type="button"
               onClick={() => setPickerProduct(p)}
-              className="flex flex-col rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="group flex flex-col rounded-lg border bg-card p-3 text-left shadow-none transition hover:border-primary/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              <div className="mb-2 flex h-20 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+              <div className="mb-2 flex h-20 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
                 {p.image_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.image_url} alt={p.name} className="h-full w-full rounded-lg object-cover" />
+                  <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" />
                 ) : (
                   <Shirt className="size-8" />
                 )}
@@ -285,7 +285,7 @@ export function PosTerminal() {
               <p className="text-xs text-muted-foreground">
                 {(p.variants ?? []).length} variant{(p.variants ?? []).length === 1 ? "" : "s"}
               </p>
-              <p className="mt-1 text-sm font-semibold">
+              <p className="mt-1 text-sm font-semibold text-primary">
                 {formatCurrency(Math.min(...(p.variants ?? []).map((v) => v.price)))}
               </p>
             </button>
@@ -366,13 +366,13 @@ export function PosTerminal() {
                   addVariant(v.id);
                   setPickerProduct(null);
                 }}
-                className="flex flex-col rounded-lg border p-3 text-left transition-colors hover:bg-accent/50"
+                className="flex flex-col rounded-lg border p-3 text-left transition hover:border-primary/40 hover:shadow-sm"
               >
                 <span className="text-sm font-medium">
                   {[v.size, v.color].filter(Boolean).join(" · ") || "Default"}
                 </span>
                 <span className="text-sm font-semibold">{formatCurrency(v.price)}</span>
-                <span className={v.stock_qty <= v.reorder_level ? "text-xs text-amber-600" : "text-xs text-muted-foreground"}>
+                <span className={v.stock_qty <= v.reorder_level ? "text-xs text-warning" : "text-xs text-muted-foreground"}>
                   {v.stock_qty} in stock
                 </span>
               </button>

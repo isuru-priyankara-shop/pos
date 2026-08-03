@@ -98,7 +98,7 @@ describe("applyTheme", () => {
 
 describe("DEFAULT_THEME", () => {
   it("matches the app's default palette", () => {
-    expect(DEFAULT_THEME.primary).toBe("#111111");
-    expect(DEFAULT_THEME.secondary).toBe("#f5f5f5");
+    expect(DEFAULT_THEME.primary).toBe("#2563eb");
+    expect(DEFAULT_THEME.secondary).toBe("#eef2f6");
   });
 });

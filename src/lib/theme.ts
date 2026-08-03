@@ -3,9 +3,18 @@ export const THEME_KEYS = {
   secondary: "theme_secondary",
 } as const;
 
+/** Swappable accent presets — the app defaults to Blue. */
+export const ACCENT_PRESETS = [
+  { name: "Blue", hex: "#2563eb" },
+  { name: "Green", hex: "#059669" },
+  { name: "Red", hex: "#dc2626" },
+  { name: "Violet", hex: "#7c3aed" },
+  { name: "Amber", hex: "#d97706" },
+] as const;
+
 export const DEFAULT_THEME = {
-  primary: "#111111",
-  secondary: "#f5f5f5",
+  primary: ACCENT_PRESETS[0].hex,
+  secondary: "#eef2f6",
 } as const;
 
 export const THEME_EVENT = "pos-theme-changed";

@@ -14,7 +14,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import {
+  ACCENT_PRESETS,
   applyTheme,
   DEFAULT_THEME,
   hexIsValid,
@@ -147,6 +149,39 @@ export function SettingsPanel() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>Accent presets</Label>
+            <p className="text-xs text-muted-foreground">
+              One-line accent swaps. Pick a preset or enter a custom color below.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {ACCENT_PRESETS.map((preset) => {
+                const isActive =
+                  hexIsValid(values[THEME_KEYS.primary]) &&
+                  values[THEME_KEYS.primary].toLowerCase() === preset.hex.toLowerCase();
+                return (
+                  <button
+                    key={preset.hex}
+                    type="button"
+                    onClick={() => updateColor(THEME_KEYS.primary, preset.hex)}
+                    className={cn(
+                      "inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition-colors",
+                      isActive
+                        ? "border-primary text-primary"
+                        : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                    )}
+                  >
+                    <span
+                      className="size-4 rounded-full border"
+                      style={{ backgroundColor: preset.hex }}
+                    />
+                    {preset.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {COLORS.map((color) => (
             <div key={color.key} className="space-y-2">
               <Label htmlFor={color.key}>{color.label}</Label>

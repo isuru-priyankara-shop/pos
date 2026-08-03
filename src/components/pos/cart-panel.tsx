@@ -167,11 +167,11 @@ export function CartPanel({
           <span>{formatCurrency(totals.tax_total)}</span>
         </div>
         <Separator className="my-2" />
-        <div className="flex justify-between text-lg font-bold">
+        <div className="flex justify-between text-xl font-semibold tracking-tight">
           <span>Total</span>
           <span>{formatCurrency(totals.grand_total)}</span>
         </div>
-        <Button size="lg" className="mt-3 w-full" disabled={lines.length === 0} onClick={onCheckout}>
+        <Button className="mt-3 h-10 w-full text-base font-semibold" disabled={lines.length === 0} onClick={onCheckout}>
           Charge {formatCurrency(totals.grand_total)}
         </Button>
       </div>

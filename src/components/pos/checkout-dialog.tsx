@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, X } from "lucide-react";
+import {
+  Banknote,
+  CreditCard,
+  Layers,
+  Plus,
+  Smartphone,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
+
 import { createClient } from "@/lib/supabase/client";
 import type { Customer, PaymentMethod } from "@/lib/db.types";
 import { computePaymentSummary, type PaymentEntry } from "@/lib/pos";
@@ -26,6 +34,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 
 interface Totals {
   subtotal: number;
@@ -35,6 +44,17 @@ interface Totals {
 }
 
 const QUICK_CASH = [1000, 2000, 5000];
+
+const TENDER_TILES: { method: PaymentMethod; label: string; icon: typeof Banknote }[] = [
+  { method: "cash", label: "Cash", icon: Banknote },
+  { method: "card", label: "Card", icon: CreditCard },
+  { method: "qr", label: "Mobile Pay", icon: Smartphone },
+  { method: "credit", label: "Credit", icon: CreditCard },
+];
+
+function newPayment(method: PaymentMethod, amount: number): PaymentEntry {
+  return { id: crypto.randomUUID(), method, amount };
+}
 
 export function CheckoutDialog({
   open,
@@ -48,8 +68,9 @@ export function CheckoutDialog({
   onComplete: (customerId: string | null, payments: PaymentEntry[]) => Promise<void>;
 }) {
   const [payments, setPayments] = useState<PaymentEntry[]>([
-    { id: crypto.randomUUID(), method: "cash", amount: totals.grand_total },
+    newPayment("cash", totals.grand_total),
   ]);
+  const [split, setSplit] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
   const [customerResults, setCustomerResults] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -58,7 +79,8 @@ export function CheckoutDialog({
   function handleOpenChange(next: boolean) {
     if (next) {
       setBusy(false);
-      setPayments([{ id: crypto.randomUUID(), method: "cash", amount: totals.grand_total }]);
+      setSplit(false);
+      setPayments([newPayment("cash", totals.grand_total)]);
       setCustomerQuery("");
       setSelectedCustomer(null);
       setCustomerResults([]);
@@ -88,23 +110,31 @@ export function CheckoutDialog({
     setPayments((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)));
   }
 
-  function addPayment() {
-    setPayments((prev) => [...prev, { id: crypto.randomUUID(), method: "card", amount: 0 }]);
+  function pickMethod(method: PaymentMethod) {
+    setSplit(false);
+    setPayments([newPayment(method, round2(totals.grand_total))]);
+  }
+
+  function addSplitPayment(method: PaymentMethod = "card") {
+    setSplit(true);
+    setPayments((prev) => [...prev, newPayment(method, 0)]);
   }
 
   function removePayment(id: string) {
-    setPayments((prev) => (prev.length > 1 ? prev.filter((p) => p.id !== id) : prev));
+    setPayments((prev) => {
+      const next = prev.filter((p) => p.id !== id);
+      if (next.length === 1) setSplit(false);
+      return next.length > 0 ? next : prev;
+    });
   }
 
   function setQuickCash(amount: number) {
     setPayments((prev) => {
       const cash = prev.filter((p) => p.method === "cash");
       if (cash.length === 0) {
-        return [...prev, { id: crypto.randomUUID(), method: "cash", amount }];
+        return [...prev, newPayment("cash", amount)];
       }
-      return prev.map((p) =>
-        p.method === "cash" ? { ...p, amount: amount === totals.grand_total ? round2(amount) : amount } : p
-      );
+      return prev.map((p) => (p.method === "cash" ? { ...p, amount: round2(amount) } : p));
     });
   }
 
@@ -129,30 +159,60 @@ export function CheckoutDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !busy && handleOpenChange(o)}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Checkout</DialogTitle>
-          <DialogDescription>Select customer (optional), payments, then confirm.</DialogDescription>
+          <DialogDescription>
+            Choose tender, then confirm to record the sale.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Subtotal</span>
-              <span>{formatCurrency(totals.subtotal)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Discount</span>
-              <span>-{formatCurrency(totals.discount_total)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Tax</span>
-              <span>{formatCurrency(totals.tax_total)}</span>
-            </div>
-            <div className="flex justify-between text-base font-bold">
-              <span>Total</span>
-              <span>{formatCurrency(totals.grand_total)}</span>
-            </div>
+          {/* Prominent total */}
+          <div className="rounded-lg border bg-primary/5 px-4 py-3">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Amount due
+            </p>
+            <p className="text-3xl font-semibold tracking-tight text-foreground">
+              {formatCurrency(totals.grand_total)}
+            </p>
+          </div>
+
+          {/* Tender tiles */}
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {TENDER_TILES.map((tile) => {
+              const Icon = tile.icon;
+              const active = !split && payments[0]?.method === tile.method;
+              return (
+                <button
+                  key={tile.method}
+                  type="button"
+                  onClick={() => pickMethod(tile.method)}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 rounded-lg border bg-card p-3 text-sm font-medium transition-colors",
+                    active
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+                  )}
+                >
+                  <Icon className="size-5" />
+                  {tile.label}
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => addSplitPayment("card")}
+              className={cn(
+                "flex flex-col items-center gap-1.5 rounded-lg border bg-card p-3 text-sm font-medium transition-colors",
+                split
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:border-primary/40 hover:text-foreground",
+              )}
+            >
+              <Layers className="size-5" />
+              Split bill
+            </button>
           </div>
 
           <Separator />
@@ -206,8 +266,13 @@ export function CheckoutDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label>Payments</Label>
-              <Button type="button" variant="outline" size="sm" onClick={addPayment}>
-                <Plus className="size-4" /> Split payment
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => addSplitPayment("card")}
+              >
+                <Plus className="size-4" /> Split
               </Button>
             </div>
             {payments.map((p) => (
@@ -232,7 +297,9 @@ export function CheckoutDialog({
                   step="0.01"
                   value={p.amount === 0 ? "" : p.amount}
                   placeholder="0.00"
-                  onChange={(e) => updatePayment(p.id, { amount: round2(parseFloat(e.target.value) || 0) })}
+                  onChange={(e) =>
+                    updatePayment(p.id, { amount: round2(parseFloat(e.target.value) || 0) })
+                  }
                 />
                 {payments.length > 1 && (
                   <Button
@@ -261,18 +328,40 @@ export function CheckoutDialog({
                 </Button>
               ))}
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-muted-foreground">Paid</span>
-              <span>{formatCurrency(summary.totalPaid)}</span>
+            <Separator />
+            <div className="flex flex-col gap-1 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Subtotal</span>
+                <span>{formatCurrency(totals.subtotal)}</span>
+              </div>
+              {totals.discount_total > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Discount</span>
+                  <span>-{formatCurrency(totals.discount_total)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Tax</span>
+                <span>{formatCurrency(totals.tax_total)}</span>
+              </div>
+              <div className="flex justify-between text-base font-semibold">
+                <span>Paid</span>
+                <span className="text-primary">{formatCurrency(summary.totalPaid)}</span>
+              </div>
+              {summary.shortfall > 0.001 && (
+                <p className="text-right text-destructive">
+                  Short {formatCurrency(summary.shortfall)}
+                </p>
+              )}
+              {summary.change > 0 && (
+                <p className="flex justify-between">
+                  <span className="text-muted-foreground">Change</span>
+                  <span className="font-semibold text-primary">
+                    {formatCurrency(summary.change)}
+                  </span>
+                </p>
+              )}
             </div>
-            {summary.shortfall > 0.001 && (
-              <p className="text-sm text-destructive">
-                Short {formatCurrency(summary.shortfall)}
-              </p>
-            )}
-            {summary.change > 0 && (
-              <p className="text-sm text-emerald-600">Change {formatCurrency(summary.change)}</p>
-            )}
           </div>
         </div>
 
@@ -280,8 +369,8 @@ export function CheckoutDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             Cancel
           </Button>
-          <Button onClick={handleConfirm} disabled={!valid} size="lg">
-            {busy ? "Processing…" : `Confirm ${formatCurrency(totals.grand_total)}`}
+          <Button onClick={handleConfirm} disabled={!valid} size="lg" className="h-10">
+            {busy ? "Processing…" : `Charge ${formatCurrency(totals.grand_total)}`}
           </Button>
         </DialogFooter>
       </DialogContent>
