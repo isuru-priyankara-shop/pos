@@ -137,7 +137,7 @@ function VariantForm({
         <DialogDescription>Size/color are optional — at least one is required.</DialogDescription>
       </DialogHeader>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="v-size">Size</Label>
           <Input id="v-size" value={form.size} onChange={(e) => setForm({ ...form, size: e.target.value })} placeholder="M" />

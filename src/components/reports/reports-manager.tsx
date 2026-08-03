@@ -156,9 +156,9 @@ export function ReportsManager() {
           <h1 className="text-xl font-semibold">Sales reporting</h1>
           <p className="text-sm text-muted-foreground">Completed sales only; voids counted separately.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
           <Select value={period} onValueChange={changePeriod}>
-            <SelectTrigger className="w-40">
+            <SelectTrigger className="w-full sm:w-40">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -171,8 +171,8 @@ export function ReportsManager() {
           </Select>
           {period === "custom" && (
             <>
-              <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setData(null); }} className="w-40" />
-              <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setData(null); }} className="w-40" />
+              <Input type="date" value={customFrom} onChange={(e) => { setCustomFrom(e.target.value); setData(null); }} className="w-full sm:w-40" />
+              <Input type="date" value={customTo} onChange={(e) => { setCustomTo(e.target.value); setData(null); }} className="w-full sm:w-40" />
             </>
           )}
           <Button variant="outline" size="icon" onClick={() => changePeriod(period)} title="Refresh">
@@ -266,15 +266,17 @@ export function ReportsManager() {
               ) : (
                 daily.map((d) => (
                   <div key={d.date} className="flex items-center gap-3 text-sm">
-                    <span className="w-16 shrink-0 text-muted-foreground">{d.label}</span>
-                    <div className="h-2.5 flex-1 rounded-full bg-muted">
+                    <span className="w-14 shrink-0 text-muted-foreground sm:w-16">{d.label}</span>
+                    <div className="h-2.5 min-w-0 flex-1 rounded-full bg-muted">
                       <div
                         className="h-full rounded-full bg-primary/70"
                         style={{ width: `${Math.max(2, (d.revenue / maxDaily) * 100)}%` }}
                       />
                     </div>
-                    <span className="w-24 shrink-0 text-right font-medium">{formatCurrency(d.revenue)}</span>
-                    <span className="w-14 shrink-0 text-right text-xs text-muted-foreground">{d.orders} ord.</span>
+                    <span className="w-20 shrink-0 text-right font-medium sm:w-24">{formatCurrency(d.revenue)}</span>
+                    <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground sm:block">
+                      {d.orders} ord.
+                    </span>
                   </div>
                 ))
               )}

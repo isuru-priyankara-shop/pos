@@ -172,7 +172,7 @@ export function StaffManagement({
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Staff</h1>
           <p className="text-sm text-muted-foreground">
@@ -180,7 +180,7 @@ export function StaffManagement({
             sign in immediately.
           </p>
         </div>
-        <Button onClick={openAdd}>
+        <Button onClick={openAdd} className="w-full sm:w-auto">
           <Plus className="size-4" /> Add staff
         </Button>
       </div>
@@ -267,7 +267,7 @@ export function StaffManagement({
                 required
               />
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="add-password">Password</Label>
                 <Input
@@ -291,7 +291,7 @@ export function StaffManagement({
                 />
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <Label>Role</Label>
                 <Select value={form.role} onValueChange={(v) => set("role", v as Role)}>
@@ -351,7 +351,7 @@ export function StaffManagement({
                   Email cannot be changed here. Role and status below:
                 </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label>Role</Label>
                   <Select

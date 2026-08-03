@@ -87,7 +87,7 @@ export function CustomerManager({
         placeholder="Search name, phone or email…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="max-w-xs"
+        className="w-full sm:max-w-xs"
       />
 
       <div className="rounded-lg border bg-card">

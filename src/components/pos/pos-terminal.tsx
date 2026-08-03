@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useCallback, useState } from "react";
-import { Camera, Minus, Plus, Search, Shirt, Trash2 } from "lucide-react";
+import { Camera, Search, Shirt } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-provider";
 import type { Category, ProductWithVariants } from "@/lib/db.types";
 import { buildSalePayload, cartToTotalsInput, cartLineTotals, type CartLine, type PaymentEntry } from "@/lib/pos";
 import { computeTotals, formatCurrency, resolveDiscount, round2 } from "@/lib/money";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
+import { CartPanel } from "@/components/pos/cart-panel";
 import { CheckoutDialog } from "@/components/pos/checkout-dialog";
 import { ReceiptView, type ReceiptData } from "@/components/pos/receipt-view";
 import { CameraScanner } from "@/components/pos/camera-scanner";
@@ -27,7 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 
 export function PosTerminal() {
   const { supabase, user, profile } = useAuth();
@@ -41,6 +42,7 @@ export function PosTerminal() {
   const [cartDiscountMode, setCartDiscountMode] = useState<"fixed" | "percent">("fixed");
   const [pickerProduct, setPickerProduct] = useState<ProductWithVariants | null>(null);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [cartOpen, setCartOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const scanInputRef = useRef<HTMLInputElement>(null);
@@ -210,12 +212,12 @@ export function PosTerminal() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] gap-4 p-4">
+    <div className="flex min-h-0 flex-col gap-3 p-3 pb-28 md:h-[calc(100vh-3.5rem)] md:flex-row md:gap-4 md:p-4 md:pb-4">
       {/* ---------- Left: catalog ---------- */}
       <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <form
-            className="relative flex-1"
+            className="relative min-w-40 flex-1"
             onSubmit={(e) => {
               e.preventDefault();
               const input = scanInputRef.current;
@@ -244,7 +246,7 @@ export function PosTerminal() {
             <Camera className="size-4" />
           </Button>
           <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-            <SelectTrigger className="w-44">
+            <SelectTrigger className="w-36 sm:w-44">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -291,140 +293,62 @@ export function PosTerminal() {
         </div>
       </div>
 
-      {/* ---------- Right: cart ---------- */}
-      <div className="flex w-80 shrink-0 flex-col rounded-xl border bg-card sm:w-96">
-        <div className="flex items-center justify-between border-b p-3">
-          <h2 className="font-semibold">Current sale</h2>
-          {cart.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={() => { setCart([]); setCartDiscount(0); }}>
-              Clear
-            </Button>
-          )}
-        </div>
+      {/* ---------- Right: cart (desktop) ---------- */}
+      <aside className="hidden w-80 shrink-0 flex-col rounded-xl border bg-card md:flex xl:w-96">
+        <CartPanel
+          lines={cart}
+          totals={totals}
+          cartDiscount={cartDiscount}
+          cartDiscountMode={cartDiscountMode}
+          onChangeQty={changeQty}
+          onRemoveLine={removeLine}
+          onSetDiscount={setDiscount}
+          onCartDiscountChange={(v) => setCartDiscount(Math.max(0, round2(v)))}
+          onCartDiscountModeChange={setCartDiscountMode}
+          onClear={() => { setCart([]); setCartDiscount(0); }}
+          onCheckout={() => setCheckoutOpen(true)}
+        />
+      </aside>
 
-        <div className="flex-1 space-y-3 overflow-y-auto p-3">
-          {cart.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">
-              Scan an item or tap a product to begin.
+      {/* ---------- Mobile: sticky cart bar + bottom sheet ---------- */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 p-3 backdrop-blur md:hidden">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">
+              {cart.length} item{cart.length === 1 ? "" : "s"}
             </p>
-          ) : (
-            cart.map((l) => (
-              <div key={l.variant.id} className="space-y-2 rounded-lg border p-2">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{l.variant.product_name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {[l.variant.size, l.variant.color].filter(Boolean).join(" · ") || "—"}
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="icon" className="-m-1 size-6" onClick={() => removeLine(l.variant.id)}>
-                    <Trash2 className="size-3.5 text-muted-foreground" />
-                  </Button>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1">
-                    <Button variant="outline" size="icon" className="size-7" onClick={() => changeQty(l.variant.id, -1)}>
-                      <Minus className="size-3.5" />
-                    </Button>
-                    <span className="w-8 text-center text-sm">{l.quantity}</span>
-                    <Button variant="outline" size="icon" className="size-7" onClick={() => changeQty(l.variant.id, 1)}>
-                      <Plus className="size-3.5" />
-                    </Button>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm font-semibold">{formatCurrency(cartLineTotals(l).line_total)}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {formatCurrency(l.variant.price)} × {l.quantity}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Discount</span>
-                  <Select
-                    value={l.discount_type}
-                    onValueChange={(v) => setDiscount(l.variant.id, l.line_discount, v as "fixed" | "percent")}
-                  >
-                    <SelectTrigger className="h-7 w-14 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="fixed">Rs</SelectItem>
-                      <SelectItem value="percent">%</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    className="h-7 w-24 text-xs"
-                    value={l.line_discount === 0 ? "" : l.line_discount}
-                    placeholder={l.discount_type === "percent" ? "10%" : "0.00"}
-                    onChange={(e) => setDiscount(l.variant.id, parseFloat(e.target.value) || 0, l.discount_type)}
-                  />
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        <div className="space-y-1 border-t p-3 text-sm">
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Subtotal</span>
-            <span>{formatCurrency(totals.subtotal)}</span>
+            <p className="truncate text-lg font-bold leading-tight">
+              {formatCurrency(totals.grand_total)}
+            </p>
           </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-muted-foreground">Sale discount</span>
-            <div className="flex items-center gap-1">
-              <Select
-                value={cartDiscountMode}
-                onValueChange={(v) => setCartDiscountMode(v as "fixed" | "percent")}
-                disabled={cart.length === 0}
-              >
-                <SelectTrigger className="h-7 w-14 text-xs">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="fixed">Rs</SelectItem>
-                  <SelectItem value="percent">%</SelectItem>
-                </SelectContent>
-              </Select>
-              <Input
-                type="number"
-                min={0}
-                step="0.01"
-                className="h-7 w-24 text-right text-xs"
-                value={cartDiscount === 0 ? "" : cartDiscount}
-                placeholder={cartDiscountMode === "percent" ? "10%" : "0.00"}
-                onChange={(e) => setCartDiscount(Math.max(0, round2(parseFloat(e.target.value) || 0)))}
-                disabled={cart.length === 0}
-              />
-            </div>
+          <div className="flex shrink-0 gap-2">
+            <Button variant="outline" disabled={cart.length === 0} onClick={() => setCartOpen(true)}>
+              Cart
+            </Button>
+            <Button disabled={cart.length === 0} onClick={() => setCheckoutOpen(true)}>
+              Charge
+            </Button>
           </div>
-          {totals.discount_total > 0 && (
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Discount</span>
-              <span>-{formatCurrency(totals.discount_total)}</span>
-            </div>
-          )}
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">Tax</span>
-            <span>{formatCurrency(totals.tax_total)}</span>
-          </div>
-          <Separator className="my-2" />
-          <div className="flex justify-between text-lg font-bold">
-            <span>Total</span>
-            <span>{formatCurrency(totals.grand_total)}</span>
-          </div>
-          <Button
-            size="lg"
-            className="mt-3 w-full"
-            disabled={cart.length === 0}
-            onClick={() => setCheckoutOpen(true)}
-          >
-            Charge {formatCurrency(totals.grand_total)}
-          </Button>
         </div>
       </div>
+
+      <Sheet open={cartOpen} onOpenChange={setCartOpen}>
+        <SheetContent side="bottom" className="h-[85dvh] gap-0 p-0" showCloseButton={false}>
+          <CartPanel
+            lines={cart}
+            totals={totals}
+            cartDiscount={cartDiscount}
+            cartDiscountMode={cartDiscountMode}
+            onChangeQty={changeQty}
+            onRemoveLine={removeLine}
+            onSetDiscount={setDiscount}
+            onCartDiscountChange={(v) => setCartDiscount(Math.max(0, round2(v)))}
+            onCartDiscountModeChange={setCartDiscountMode}
+            onClear={() => { setCart([]); setCartDiscount(0); }}
+            onCheckout={() => { setCartOpen(false); setCheckoutOpen(true); }}
+          />
+        </SheetContent>
+      </Sheet>
 
       {/* ---------- Variant picker ---------- */}
       <Dialog open={!!pickerProduct} onOpenChange={(o) => !o && setPickerProduct(null)}>
