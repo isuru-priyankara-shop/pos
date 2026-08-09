@@ -14,7 +14,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Customer, PaymentMethod } from "@/lib/db.types";
 import { computePaymentSummary, type PaymentEntry } from "@/lib/pos";
-import { formatCurrency, round2 } from "@/lib/money";
+import { formatCurrency, round2, type DiscountMode } from "@/lib/money";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -60,15 +60,23 @@ export function CheckoutDialog({
   open,
   onOpenChange,
   totals,
+  cartDiscount,
+  cartDiscountMode,
+  onCartDiscountChange,
+  onCartDiscountModeChange,
   onComplete,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   totals: Totals;
+  cartDiscount: number;
+  cartDiscountMode: DiscountMode;
+  onCartDiscountChange: (value: number) => void;
+  onCartDiscountModeChange: (mode: DiscountMode) => void;
   onComplete: (customerId: string | null, payments: PaymentEntry[]) => Promise<void>;
 }) {
   const [payments, setPayments] = useState<PaymentEntry[]>([
-    newPayment("cash", totals.grand_total),
+    newPayment("cash", 0),
   ]);
   const [split, setSplit] = useState(false);
   const [customerQuery, setCustomerQuery] = useState("");
@@ -77,15 +85,25 @@ export function CheckoutDialog({
   const [busy, setBusy] = useState(false);
 
   function handleOpenChange(next: boolean) {
-    if (next) {
+    onOpenChange(next);
+  }
+
+  // Radix only calls onOpenChange for user-initiated changes — programmatic
+  // opens (setCheckoutOpen in the parent) never reach handleOpenChange. So
+  // reset every payment/customer field whenever the dialog opens, otherwise
+  // the previous sale's details linger on the next checkout. The payment
+  // amount starts empty — it depends on what the customer hands over.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
       setBusy(false);
       setSplit(false);
-      setPayments([newPayment("cash", totals.grand_total)]);
+      setPayments([newPayment("cash", 0)]);
       setCustomerQuery("");
       setSelectedCustomer(null);
       setCustomerResults([]);
     }
-    onOpenChange(next);
   }
 
   useEffect(() => {
@@ -112,7 +130,7 @@ export function CheckoutDialog({
 
   function pickMethod(method: PaymentMethod) {
     setSplit(false);
-    setPayments([newPayment(method, round2(totals.grand_total))]);
+    setPayments([newPayment(method, 0)]);
   }
 
   function addSplitPayment(method: PaymentMethod = "card") {
@@ -330,6 +348,36 @@ export function CheckoutDialog({
               ))}
             </div>
             <Separator />
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-muted-foreground">Sale discount</span>
+              <div className="flex items-center gap-1">
+                <Select
+                  value={cartDiscountMode}
+                  onValueChange={(v) => onCartDiscountModeChange(v as DiscountMode)}
+                  disabled={busy}
+                >
+                  <SelectTrigger className="h-7 w-14 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fixed">Rs</SelectItem>
+                    <SelectItem value="percent">%</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  className="h-7 w-24 text-right text-xs"
+                  value={cartDiscount === 0 ? "" : cartDiscount}
+                  placeholder={cartDiscountMode === "percent" ? "10%" : "0.00"}
+                  onChange={(e) =>
+                    onCartDiscountChange(Math.max(0, parseFloat(e.target.value) || 0))
+                  }
+                  disabled={busy}
+                />
+              </div>
+            </div>
             <div className="flex flex-col gap-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Subtotal</span>

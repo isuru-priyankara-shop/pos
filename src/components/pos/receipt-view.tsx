@@ -15,6 +15,8 @@ export interface ReceiptItem {
 }
 
 export interface ReceiptData {
+  storeName: string;
+  storeLocation: string;
   saleId: string;
   saleDate: string;
   cashierName: string;
@@ -30,10 +32,10 @@ export interface ReceiptData {
 
 export function ReceiptView({ receipt }: { receipt: ReceiptData }) {
   return (
-    <div className="mx-auto w-full max-w-sm bg-white p-6 font-mono text-sm text-black">
+    <div className="mx-auto w-full max-w-sm bg-white p-6 font-mono text-sm text-black print:px-8 print:py-2">
       <div className="text-center">
-        <p className="text-base font-bold">Clothing Store</p>
-        <p className="text-xs">123 Main Street · +94 11 234 5678</p>
+        <p className="text-base font-bold">{receipt.storeName || "Clothing Store"}</p>
+        {receipt.storeLocation && <p className="text-xs">{receipt.storeLocation}</p>}
       </div>
 
       <Separator className="my-3 bg-black" />
@@ -68,12 +70,12 @@ export function ReceiptView({ receipt }: { receipt: ReceiptData }) {
               <span className="leading-tight">
                 {item.name}
                 {item.size || item.color ? ` (${[item.size, item.color].filter(Boolean).join(" · ")})` : ""}
-                <span className="text-muted-foreground"> x{item.quantity}</span>
+                <span className="text-neutral-500"> x{item.quantity}</span>
               </span>
               <span>{formatCurrency(item.line_total)}</span>
             </div>
             {item.line_discount > 0 && (
-              <p className="text-right text-[10px] text-muted-foreground">
+              <p className="text-right text-[10px] text-neutral-500">
                 discount -{formatCurrency(item.line_discount)}
               </p>
             )}

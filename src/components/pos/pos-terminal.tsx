@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth-provider";
 import type { Category, ProductWithVariants } from "@/lib/db.types";
 import { buildSalePayload, cartToTotalsInput, cartLineTotals, type CartLine, type PaymentEntry } from "@/lib/pos";
 import { computeTotals, formatCurrency, resolveDiscount, round2 } from "@/lib/money";
+import { storeDetailsFromRows } from "@/lib/store-details";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import { CartPanel } from "@/components/pos/cart-panel";
 import { CheckoutDialog } from "@/components/pos/checkout-dialog";
@@ -45,6 +46,8 @@ export function PosTerminal() {
   const [cartOpen, setCartOpen] = useState(false);
   const [cameraOpen, setCameraOpen] = useState(false);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [storeName, setStoreName] = useState("");
+  const [storeLocation, setStoreLocation] = useState("");
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useRef<() => Promise<void>>(async () => {
@@ -62,6 +65,9 @@ export function PosTerminal() {
     if (cats) setCategories(cats as Category[]);
     const tax = (settings ?? []).find((s) => (s as { key: string }).key === "tax_rate");
     setTaxRate(parseFloat((tax as { value: string } | undefined)?.value ?? "0") || 0);
+    const storeDetails = storeDetailsFromRows(settings as { key: string; value: string }[] | null);
+    setStoreName(storeDetails.name);
+    setStoreLocation(storeDetails.location);
   });
 
   useEffect(() => {
@@ -180,10 +186,26 @@ export function PosTerminal() {
       customerName = (customer as { name: string } | null)?.name ?? null;
     }
 
+    // Cashier display name: first + last name when both exist on the
+    // account, otherwise the username, falling back to profile / email.
+    const meta = user.user_metadata as Record<string, unknown> | undefined;
+    const firstName = typeof meta?.first_name === "string" ? meta.first_name.trim() : "";
+    const lastName = typeof meta?.last_name === "string" ? meta.last_name.trim() : "";
+    const username = typeof meta?.username === "string" ? meta.username.trim() : "";
+    const cashierName =
+      firstName && lastName
+        ? `${firstName} ${lastName}`
+        : username ||
+          profile?.full_name?.trim() ||
+          user.email?.split("@")[0] ||
+          "Cashier";
+
     setReceipt({
+      storeName,
+      storeLocation,
       saleId: payload.sale.id,
       saleDate: payload.sale.sale_date,
-      cashierName: profile?.full_name ?? "Cashier",
+      cashierName,
       customerName,
       items: cart.map((l) => {
         const line = cartLineTotals(l);
@@ -209,6 +231,67 @@ export function PosTerminal() {
     setCheckoutOpen(false);
     await loadData.current();
     toast.success("Sale recorded");
+  }
+
+  // Print the receipt in a hidden iframe: the browser lays the content out
+  // inside the printer's printable area, so nothing is ever clipped by
+  // page or driver margins (unlike positioning the receipt on the page).
+  function printReceipt() {
+    const node = document.getElementById("receipt-print");
+    if (!node) return;
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "fixed";
+    frame.style.right = "0";
+    frame.style.bottom = "0";
+    frame.style.width = "0";
+    frame.style.height = "0";
+    frame.style.border = "0";
+    document.body.appendChild(frame);
+    const doc = frame.contentDocument;
+    if (!doc) {
+      frame.remove();
+      return;
+    }
+    doc.open();
+    doc.write(
+      `<!DOCTYPE html><html><head><meta charset="utf-8" /><title>Receipt</title></head><body>${node.outerHTML}</body></html>`
+    );
+    doc.close();
+    // Copy the app's compiled CSS so Tailwind classes render in the iframe.
+    for (const sheet of Array.from(document.styleSheets)) {
+      let css = "";
+      try {
+        css = Array.from(sheet.cssRules)
+          .map((r) => r.cssText)
+          .join("\n");
+      } catch {
+        css = (sheet.ownerNode as HTMLElement | null)?.textContent ?? "";
+      }
+      const style = doc.createElement("style");
+      style.textContent = css;
+      doc.head.appendChild(style);
+    }
+    setTimeout(() => {
+      const win = frame.contentWindow;
+      if (!win) {
+        setReceipt(null);
+        return;
+      }
+      win.focus();
+      win.print();
+      // Automatically close the sale popup once printing is done.
+      let closed = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        setReceipt(null);
+      };
+      win.addEventListener("afterprint", close);
+      // Fallback for browsers that don't fire `afterprint` on the frame.
+      setTimeout(close, 2500);
+    }, 250);
+    setTimeout(() => frame.remove(), 60_000);
   }
 
   return (
@@ -389,6 +472,10 @@ export function PosTerminal() {
         open={checkoutOpen}
         onOpenChange={setCheckoutOpen}
         totals={totals}
+        cartDiscount={cartDiscount}
+        cartDiscountMode={cartDiscountMode}
+        onCartDiscountChange={(v) => setCartDiscount(Math.max(0, round2(v)))}
+        onCartDiscountModeChange={setCartDiscountMode}
         onComplete={handleComplete}
       />
 
@@ -403,7 +490,7 @@ export function PosTerminal() {
             {receipt && <ReceiptView receipt={receipt} />}
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => window.print()}>
+            <Button variant="outline" onClick={printReceipt}>
               Print receipt
             </Button>
             <Button onClick={() => setReceipt(null)}>New sale</Button>
