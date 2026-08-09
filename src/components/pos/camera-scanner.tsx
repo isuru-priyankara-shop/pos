@@ -61,18 +61,41 @@ function CameraScannerBody({
 
     (async () => {
       try {
-        const { Html5Qrcode } = await import("html5-qrcode");
+        const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
         if (stopped) return;
         if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
           setState("error");
           setErrorMsg("Camera is not supported on this browser — use a hardware scanner instead.");
           return;
         }
-        const scanner = new Html5Qrcode(REGION_ID);
+        // html5-qrcode 2.3.8 hands decoding to the browser's native
+        // BarcodeDetector when available, which is buggy and rarely
+        // decodes 1D retail barcodes. Force the bundled zxing-js
+        // decoder instead, restricted to common retail barcode formats.
+        const scanner = new Html5Qrcode(REGION_ID, {
+          verbose: false,
+          useBarCodeDetectorIfSupported: false,
+          formatsToSupport: [
+            Html5QrcodeSupportedFormats.EAN_13,
+            Html5QrcodeSupportedFormats.EAN_8,
+            Html5QrcodeSupportedFormats.CODE_128,
+            Html5QrcodeSupportedFormats.CODE_39,
+            Html5QrcodeSupportedFormats.UPC_A,
+            Html5QrcodeSupportedFormats.UPC_E,
+            Html5QrcodeSupportedFormats.CODABAR,
+          ],
+        });
         scannerRef.current = scanner;
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 240, height: 110 } },
+          {
+            fps: 15,
+            aspectRatio: 4 / 3,
+            qrbox: (viewfinderWidth, viewfinderHeight) => ({
+              width: Math.floor(viewfinderWidth * 0.85),
+              height: Math.floor(viewfinderHeight * 0.4),
+            }),
+          },
           (decodedText) => {
             if (stopped || decoded) return;
             decoded = true;
