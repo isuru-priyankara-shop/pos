@@ -5,6 +5,7 @@ import { Eye } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-provider";
 import { createClient } from "@/lib/supabase/client";
+import { ReportDownload } from "@/components/sales/report-download";
 import type { Payment, ProductVariant, SaleItem } from "@/lib/db.types";
 import { needsManagerApproval } from "@/lib/void";
 import { formatCurrency } from "@/lib/money";
@@ -126,13 +127,16 @@ export function SalesHistory({ initialSales }: { initialSales: SaleRow[] }) {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Sales</h1>
-        <p className="text-sm text-muted-foreground">
-          {approvalNeeded
-            ? `Voids above ${formatCurrency(threshold)} require manager sign-off.`
-            : "Recent sales. Void/refund restores stock automatically."}
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Sales</h1>
+          <p className="text-sm text-muted-foreground">
+            {approvalNeeded
+              ? `Voids above ${formatCurrency(threshold)} require manager sign-off.`
+              : "Recent sales. Void/refund restores stock automatically."}
+          </p>
+        </div>
+        <ReportDownload initialSales={sales} />
       </div>
 
       {/* Mobile cards */}

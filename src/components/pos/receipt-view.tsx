@@ -124,6 +124,7 @@ export function ReceiptView({ receipt }: { receipt: ReceiptData }) {
       </div>
 
       <p className="mt-4 text-center text-xs">Thank you for shopping with us!</p>
+      <p className="text-left text-[10px] text-neutral-500">Kadex POS system : +94 76 436 0358</p>
     </div>
   );
 }

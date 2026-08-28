@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus, Power, Tags } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus, Power, Tags, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth-provider";
@@ -10,6 +10,7 @@ import { variantStatus, type ProductRow } from "@/lib/inventory";
 import { formatCurrency } from "@/lib/money";
 import { ProductFormDialog } from "@/components/inventory/product-form-dialog";
 import { CategoryManager } from "@/components/inventory/category-manager";
+import { BulkImportDialog } from "@/components/inventory/bulk-import-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,6 +103,7 @@ export function InventoryManager({
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   async function refresh() {
     const [{ data: prods }, { data: cats }] = await Promise.all([
@@ -240,6 +242,9 @@ export function InventoryManager({
         <div className="flex w-full gap-2 sm:w-auto">
           <Button className="flex-1 sm:flex-none" variant="outline" onClick={() => setCategoriesOpen(true)}>
             <Tags className="size-4" /> Categories
+          </Button>
+          <Button className="flex-1 sm:flex-none" variant="outline" onClick={() => setImportOpen(true)}>
+            <Upload className="size-4" /> Import Excel
           </Button>
           <Button className="flex-1 sm:flex-none" onClick={() => { setEditingProduct(null); setEditorOpen(true); }}>
             <Plus className="size-4" /> Add product
@@ -474,6 +479,14 @@ export function InventoryManager({
         initialCategories={categories}
         products={products}
         onChanged={refresh}
+      />
+
+      <BulkImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        categories={categories}
+        existingBarcodes={products.flatMap((p) => p.variants.map((v) => v.barcode))}
+        onImported={refresh}
       />
     </div>
   );

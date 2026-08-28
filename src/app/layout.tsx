@@ -5,7 +5,7 @@ import { ThemeApplier } from "@/components/theme-applier";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Store POS",
+  title: "Kadex POS",
   description: "Boutique point of sale",
 };
 
