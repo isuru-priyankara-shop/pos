@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Minus, Plus, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import type { CartLine } from "@/lib/pos";
 import { cartLineTotals } from "@/lib/pos";
 import { formatCurrency } from "@/lib/money";
@@ -22,12 +24,113 @@ export interface CartTotals {
   grand_total: number;
 }
 
+function QuantityInput({
+  value,
+  max,
+  onChange,
+  onRemove,
+}: {
+  value: number;
+  max: number;
+  onChange: (val: number) => void;
+  onRemove: () => void;
+}) {
+  const [localVal, setLocalVal] = useState<string>(String(Math.floor(value)));
+
+  useEffect(() => {
+    setLocalVal(String(Math.floor(value)));
+  }, [value]);
+
+  const commit = () => {
+    const trimmed = localVal.trim();
+    if (!trimmed || isNaN(Number(trimmed))) {
+      setLocalVal(String(Math.floor(value)));
+      return;
+    }
+    const num = parseInt(trimmed, 10);
+    if (num <= 0) {
+      onRemove();
+      return;
+    }
+    if (num > max) {
+      toast.warning(`Only ${max} in stock`);
+      onChange(max);
+      setLocalVal(String(max));
+      return;
+    }
+    onChange(num);
+    setLocalVal(String(num));
+  };
+
+  return (
+    <Input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      className="h-7 w-12 px-1 text-center text-xs font-semibold tabular-nums"
+      value={localVal}
+      onChange={(e) => {
+        // Strictly allow only whole digits 0-9 (no decimals, signs, or letters)
+        const str = e.target.value.replace(/[^0-9]/g, "");
+        setLocalVal(str);
+        if (!str) return;
+        const parsed = parseInt(str, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          if (parsed > max) {
+            toast.warning(`Only ${max} in stock`);
+            onChange(max);
+            setLocalVal(String(max));
+          } else {
+            onChange(parsed);
+          }
+        }
+      }}
+      onKeyDown={(e) => {
+        // Explicitly block decimal separators, exponent notation, and negative/plus signs
+        if (
+          e.key === "." ||
+          e.key === "," ||
+          e.key === "e" ||
+          e.key === "E" ||
+          e.key === "+" ||
+          e.key === "-"
+        ) {
+          e.preventDefault();
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit();
+          e.currentTarget.blur();
+        }
+      }}
+      onPaste={(e) => {
+        e.preventDefault();
+        const pasted = e.clipboardData.getData("text").replace(/[^0-9]/g, "");
+        if (!pasted) return;
+        setLocalVal(pasted);
+        const parsed = parseInt(pasted, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          const clamped = Math.min(parsed, max);
+          if (parsed > max) toast.warning(`Only ${max} in stock`);
+          onChange(clamped);
+          setLocalVal(String(clamped));
+        }
+      }}
+      onBlur={commit}
+      onFocus={(e) => e.currentTarget.select()}
+      aria-label="Item quantity (integer only)"
+    />
+  );
+}
+
 export function CartPanel({
   lines,
   totals,
   cartDiscount,
   cartDiscountMode,
   onChangeQty,
+  onSetQty,
   onRemoveLine,
   onSetDiscount,
   onCartDiscountChange,
@@ -40,6 +143,7 @@ export function CartPanel({
   cartDiscount: number;
   cartDiscountMode: "fixed" | "percent";
   onChangeQty: (variantId: string, delta: number) => void;
+  onSetQty?: (variantId: string, quantity: number) => void;
   onRemoveLine: (variantId: string) => void;
   onSetDiscount: (variantId: string, value: number, mode: "fixed" | "percent") => void;
   onCartDiscountChange: (value: number) => void;
@@ -47,6 +151,14 @@ export function CartPanel({
   onClear: () => void;
   onCheckout: () => void;
 }) {
+  const handleSetQuantity = (variantId: string, currentQty: number, nextQty: number) => {
+    if (onSetQty) {
+      onSetQty(variantId, nextQty);
+    } else {
+      onChangeQty(variantId, nextQty - currentQty);
+    }
+  };
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between border-b p-3">
@@ -79,11 +191,29 @@ export function CartPanel({
               </div>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
-                  <Button variant="outline" size="icon" className="size-7" onClick={() => onChangeQty(l.variant.id, -1)}>
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-7 shrink-0"
+                    onClick={() => onChangeQty(l.variant.id, -1)}
+                    title="Decrease quantity"
+                  >
                     <Minus className="size-3.5" />
                   </Button>
-                  <span className="w-8 text-center text-sm">{l.quantity}</span>
-                  <Button variant="outline" size="icon" className="size-7" onClick={() => onChangeQty(l.variant.id, 1)}>
+                  <QuantityInput
+                    value={l.quantity}
+                    max={l.variant.stock_qty}
+                    onChange={(val) => handleSetQuantity(l.variant.id, l.quantity, val)}
+                    onRemove={() => onRemoveLine(l.variant.id)}
+                  />
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    className="size-7 shrink-0"
+                    onClick={() => onChangeQty(l.variant.id, 1)}
+                    disabled={l.quantity >= l.variant.stock_qty}
+                    title={l.quantity >= l.variant.stock_qty ? "Maximum stock reached" : "Increase quantity"}
+                  >
                     <Plus className="size-3.5" />
                   </Button>
                 </div>

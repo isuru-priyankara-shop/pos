@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useCallback, useState } from "react";
-import { Camera, Search, Shirt } from "lucide-react";
+import { Camera, LayoutGrid, List, Search } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/auth-provider";
 import type { Category, ProductWithVariants } from "@/lib/db.types";
 import { buildSalePayload, cartToTotalsInput, cartLineTotals, type CartLine, type PaymentEntry } from "@/lib/pos";
 import { computeTotals, formatCurrency, resolveDiscount, round2 } from "@/lib/money";
-import { storeDetailsFromRows } from "@/lib/store-details";
+import { storeDetailsFromRows, STORE_DETAILS_EVENT } from "@/lib/store-details";
+import {
+  getCategoriesForStore,
+  getStoreCategoryIcon,
+  parseStoreCategoriesConfig,
+  STORE_CATEGORIES_CONFIG_EVENT,
+  type StoreCategoriesConfig,
+} from "@/lib/store-categories";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import { CartPanel } from "@/components/pos/cart-panel";
 import { CheckoutDialog } from "@/components/pos/checkout-dialog";
@@ -48,7 +56,30 @@ export function PosTerminal() {
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [storeName, setStoreName] = useState("");
   const [storeLocation, setStoreLocation] = useState("");
+  const [storeCategory, setStoreCategory] = useState("");
+  const [categoriesConfig, setCategoriesConfig] = useState<StoreCategoriesConfig>({});
+  const [viewMode, setViewMode] = useState<"card" | "row">("card");
   const scanInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("pos_view_mode");
+      if (saved === "card" || saved === "row") {
+        setViewMode(saved);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const handleViewModeChange = (mode: "card" | "row") => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem("pos_view_mode", mode);
+    } catch {
+      // ignore
+    }
+  };
 
   const loadData = useRef<() => Promise<void>>(async () => {
     const [{ data: prods }, { data: cats }, { data: settings }] = await Promise.all([
@@ -68,11 +99,32 @@ export function PosTerminal() {
     const storeDetails = storeDetailsFromRows(settings as { key: string; value: string }[] | null);
     setStoreName(storeDetails.name);
     setStoreLocation(storeDetails.location);
+    setStoreCategory(storeDetails.category);
+    setCategoriesConfig(parseStoreCategoriesConfig(settings as { key: string; value: string }[] | null));
   });
 
   useEffect(() => {
-    loadData.current();
+    void loadData.current();
+    const handleReload = () => {
+      void loadData.current();
+    };
+    window.addEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleReload);
+    window.addEventListener(STORE_DETAILS_EVENT, handleReload);
+    return () => {
+      window.removeEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleReload);
+      window.removeEventListener(STORE_DETAILS_EVENT, handleReload);
+    };
   }, []);
+
+  const displayCategories = useMemo(() => {
+    const storeCats = getCategoriesForStore(categories, categoriesConfig, storeCategory);
+    const storeCatIds = new Set(storeCats.map((c) => c.id));
+    const activeProductCatIds = new Set(products.map((p) => p.category_id).filter(Boolean));
+    const extraCats = categories.filter(
+      (c) => !storeCatIds.has(c.id) && activeProductCatIds.has(c.id),
+    );
+    return [...storeCats, ...extraCats];
+  }, [categories, categoriesConfig, storeCategory, products]);
 
   function addVariant(variantId: string) {
     const product = products.find((p) => p.variants?.some((v) => v.id === variantId));
@@ -125,6 +177,23 @@ export function PosTerminal() {
           return { ...l, quantity: Math.max(1, next) };
         })
         .filter((l) => l.quantity > 0)
+    );
+  }
+
+  function setQty(variantId: string, quantity: number) {
+    setCart((prev) =>
+      prev
+        .map((l) => {
+          if (l.variant.id !== variantId) return l;
+          const next = Math.floor(quantity);
+          if (next <= 0) return null;
+          if (next > l.variant.stock_qty) {
+            toast.warning(`Only ${l.variant.stock_qty} in stock`);
+            return { ...l, quantity: l.variant.stock_qty };
+          }
+          return { ...l, quantity: next };
+        })
+        .filter((l): l is CartLine => l !== null)
     );
   }
 
@@ -292,7 +361,9 @@ export function PosTerminal() {
       setTimeout(close, 2500);
     }, 250);
     setTimeout(() => frame.remove(), 60_000);
-  }
+  };
+
+  const ProductIcon = getStoreCategoryIcon(storeCategory);
 
   return (
     <div className="flex min-h-0 flex-col gap-3 p-3 pb-28 md:h-[calc(100vh-6.5rem)] md:flex-row md:gap-4 md:p-4 md:pb-4">
@@ -334,46 +405,143 @@ export function PosTerminal() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All categories</SelectItem>
-              {categories.map((c) => (
+              {displayCategories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
+
+          {/* View mode toggle (Card vs Row) */}
+          <div className="flex items-center rounded-lg border bg-muted/40 p-0.5">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "size-8 rounded-md transition-colors",
+                viewMode === "card"
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => handleViewModeChange("card")}
+              title="Card view"
+              aria-label="Card view"
+            >
+              <LayoutGrid className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "size-8 rounded-md transition-colors",
+                viewMode === "row"
+                  ? "bg-background text-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => handleViewModeChange("row")}
+              title="Row view"
+              aria-label="Row view"
+            >
+              <List className="size-4" />
+            </Button>
+          </div>
         </div>
 
-        <div className="grid flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto pb-4 md:grid-cols-3 xl:grid-cols-4">
-          {filteredProducts.length === 0 && (
-            <p className="col-span-full py-16 text-center text-muted-foreground">
-              No products match. Ask a manager to add them in Inventory.
-            </p>
-          )}
-          {filteredProducts.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPickerProduct(p)}
-              className="group flex flex-col rounded-lg border bg-card p-3 text-left shadow-none transition hover:border-primary/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <div className="mb-2 flex h-20 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
-                {p.image_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" />
-                ) : (
-                  <Shirt className="size-8" />
-                )}
+        {viewMode === "card" ? (
+          <div className="grid flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto pb-4 md:grid-cols-3 xl:grid-cols-4">
+            {filteredProducts.length === 0 && (
+              <p className="col-span-full py-16 text-center text-muted-foreground">
+                No products match. Ask a manager to add them in Inventory.
+              </p>
+            )}
+            {filteredProducts.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setPickerProduct(p)}
+                className="group flex flex-col rounded-lg border bg-card p-3 text-left shadow-none transition hover:border-primary/40 hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+              >
+                <div className="mb-2 flex h-20 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+                  {p.image_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <ProductIcon className="size-8" />
+                  )}
+                </div>
+                <p className="line-clamp-1 text-sm font-medium">{p.name}</p>
+                <p className="text-xs text-muted-foreground">
+                  {(p.variants ?? []).length} variant{(p.variants ?? []).length === 1 ? "" : "s"}
+                </p>
+                <p className="mt-1 text-sm font-semibold text-primary">
+                  {formatCurrency(Math.min(...(p.variants ?? []).map((v) => v.price)))}
+                </p>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto pb-4">
+            {filteredProducts.length === 0 ? (
+              <p className="py-16 text-center text-muted-foreground">
+                No products match. Ask a manager to add them in Inventory.
+              </p>
+            ) : (
+              <div className="divide-y rounded-lg border bg-card">
+                {filteredProducts.map((p) => {
+                  const minPrice = Math.min(...(p.variants ?? []).map((v) => v.price));
+                  const totalStock = (p.variants ?? []).reduce((acc, v) => acc + v.stock_qty, 0);
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setPickerProduct(p)}
+                      className="group flex w-full items-center justify-between gap-3 p-3 text-left transition hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground">
+                          {p.image_url ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.image_url} alt={p.name} className="h-full w-full object-cover" />
+                          ) : (
+                            <ProductIcon className="size-5" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold group-hover:text-primary">
+                            {p.name}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>
+                              {(p.variants ?? []).length} variant{(p.variants ?? []).length === 1 ? "" : "s"}
+                            </span>
+                            {p.sku_prefix && (
+                              <>
+                                <span>·</span>
+                                <span>SKU: {p.sku_prefix}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 text-right">
+                        <p className="text-sm font-bold text-primary">
+                          {formatCurrency(minPrice)}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">
+                          {totalStock <= 0 ? "Out of stock" : `${totalStock} in stock`}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
-              <p className="line-clamp-1 text-sm font-medium">{p.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {(p.variants ?? []).length} variant{(p.variants ?? []).length === 1 ? "" : "s"}
-              </p>
-              <p className="mt-1 text-sm font-semibold text-primary">
-                {formatCurrency(Math.min(...(p.variants ?? []).map((v) => v.price)))}
-              </p>
-            </button>
-          ))}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ---------- Right: cart (desktop) ---------- */}
@@ -384,6 +552,7 @@ export function PosTerminal() {
           cartDiscount={cartDiscount}
           cartDiscountMode={cartDiscountMode}
           onChangeQty={changeQty}
+          onSetQty={setQty}
           onRemoveLine={removeLine}
           onSetDiscount={setDiscount}
           onCartDiscountChange={(v) => setCartDiscount(Math.max(0, round2(v)))}
@@ -423,6 +592,7 @@ export function PosTerminal() {
             cartDiscount={cartDiscount}
             cartDiscountMode={cartDiscountMode}
             onChangeQty={changeQty}
+            onSetQty={setQty}
             onRemoveLine={removeLine}
             onSetDiscount={setDiscount}
             onCartDiscountChange={(v) => setCartDiscount(Math.max(0, round2(v)))}

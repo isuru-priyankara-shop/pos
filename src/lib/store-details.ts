@@ -5,6 +5,7 @@ export const STORE_SETTING_KEYS = {
   category: "store_category",
   name: "store_name",
   location: "store_location",
+  categories_config: "store_categories_config",
 } as const;
 
 export const STORE_CATEGORIES = [

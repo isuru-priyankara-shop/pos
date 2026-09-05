@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
@@ -39,6 +40,25 @@ import {
   storeDetailsFromRows,
   type StoreDetails,
 } from "@/lib/store-details";
+import {
+  parseStoreCategoriesConfig,
+  serializeStoreCategoriesConfig,
+  STORE_CATEGORIES_CONFIG_EVENT,
+  STORE_CATEGORY_PRESETS,
+  type StoreCategoriesConfig,
+} from "@/lib/store-categories";
+import type { Category } from "@/lib/db.types";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FolderCog,
+  Pencil,
+  Plus,
+  Sparkles,
+  Store,
+  Trash2,
+} from "lucide-react";
 
 type ThemeColor = {
   key: string;
@@ -72,27 +92,87 @@ export function SettingsPanel() {
   const [storeSaving, setStoreSaving] = useState(false);
   const ownerUnlocked = ownerPassword === PRODUCT_OWNER_PASSWORD;
 
+  // Category Configuration state
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [productCounts, setProductCounts] = useState<Record<string, number>>({});
+  const [categoriesConfig, setCategoriesConfig] = useState<StoreCategoriesConfig>({});
+  const [selectedStoreCategory, setSelectedStoreCategory] = useState<string>("");
+  const [newCatName, setNewCatName] = useState("");
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState("");
+  const [catSaving, setCatSaving] = useState(false);
+  const [showOtherCategories, setShowOtherCategories] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const { data } = await supabase.from("app_settings").select("key, value");
-      if (cancelled || !data) return;
-      setValues((prev) => {
-        const next = { ...prev };
-        for (const row of data) {
-          if (row.key === THEME_KEYS.primary || row.key === THEME_KEYS.secondary) {
-            if (hexIsValid(row.value)) next[row.key] = row.value.toLowerCase();
+      const [{ data: settingsData }, { data: catsData }, { data: prodsData }] =
+        await Promise.all([
+          supabase.from("app_settings").select("key, value"),
+          supabase.from("categories").select("*").order("name"),
+          supabase.from("products").select("id, category_id"),
+        ]);
+      if (cancelled) return;
+
+      if (settingsData) {
+        setValues((prev) => {
+          const next = { ...prev };
+          for (const row of settingsData) {
+            if (row.key === THEME_KEYS.primary || row.key === THEME_KEYS.secondary) {
+              if (hexIsValid(row.value)) next[row.key] = row.value.toLowerCase();
+            }
+          }
+          return next;
+        });
+        const details = storeDetailsFromRows(settingsData);
+        setStoreDetails(details);
+        setSelectedStoreCategory((prev) => prev || details.category || "Bookshop");
+        setCategoriesConfig(parseStoreCategoriesConfig(settingsData));
+      }
+
+      if (catsData) {
+        setCategories(catsData as Category[]);
+      }
+
+      if (prodsData) {
+        const counts: Record<string, number> = {};
+        for (const p of prodsData) {
+          if (p.category_id) {
+            counts[p.category_id] = (counts[p.category_id] || 0) + 1;
           }
         }
-        return next;
-      });
-      setStoreDetails(storeDetailsFromRows(data));
+        setProductCounts(counts);
+      }
+
       setLoaded(true);
     };
+
     void load();
     return () => {
       cancelled = true;
     };
+  }, [supabase]);
+
+  useEffect(() => {
+    const handleConfigEvent = async () => {
+      const [{ data: catsData }, { data: settingsData }, { data: prodsData }] =
+        await Promise.all([
+          supabase.from("categories").select("*").order("name"),
+          supabase.from("app_settings").select("key, value"),
+          supabase.from("products").select("id, category_id"),
+        ]);
+      if (catsData) setCategories(catsData as Category[]);
+      if (settingsData) setCategoriesConfig(parseStoreCategoriesConfig(settingsData));
+      if (prodsData) {
+        const counts: Record<string, number> = {};
+        for (const p of prodsData) {
+          if (p.category_id) counts[p.category_id] = (counts[p.category_id] || 0) + 1;
+        }
+        setProductCounts(counts);
+      }
+    };
+    window.addEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleConfigEvent);
+    return () => window.removeEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleConfigEvent);
   }, [supabase]);
 
   const updateColor = (key: string, value: string) => {
@@ -120,6 +200,7 @@ export function SettingsPanel() {
         { onConflict: "key" },
       );
       if (error) throw error;
+      setSelectedStoreCategory(storeDetails.category);
       window.dispatchEvent(new Event(STORE_DETAILS_EVENT));
       toast.success("Store details saved");
     } catch (err) {
@@ -127,6 +208,147 @@ export function SettingsPanel() {
     } finally {
       setStoreSaving(false);
     }
+  };
+
+  const saveConfigToDb = async (nextConfig: StoreCategoriesConfig) => {
+    setCategoriesConfig(nextConfig);
+    const { error } = await supabase.from("app_settings").upsert(
+      {
+        key: STORE_SETTING_KEYS.categories_config,
+        value: serializeStoreCategoriesConfig(nextConfig),
+      },
+      { onConflict: "key" },
+    );
+    if (error) {
+      toast.error("Failed to save categories configuration");
+      return false;
+    }
+    window.dispatchEvent(new Event(STORE_CATEGORIES_CONFIG_EVENT));
+    return true;
+  };
+
+  const activeStoreCategory = selectedStoreCategory || storeDetails.category || "Bookshop";
+  const activeCategoryIds = categoriesConfig[activeStoreCategory] ?? [];
+  const activeCategorySet = new Set(activeCategoryIds);
+
+  const currentStoreCategories = categories.filter((c) => activeCategorySet.has(c.id));
+  const otherCategories = categories.filter((c) => !activeCategorySet.has(c.id));
+  const presets = STORE_CATEGORY_PRESETS[activeStoreCategory] ?? [];
+
+  const handleAddCategory = async (nameToAdd?: string) => {
+    const name = (nameToAdd ?? newCatName).trim();
+    if (!name) return;
+    const storeCat = activeStoreCategory;
+
+    setCatSaving(true);
+    try {
+      let cat = categories.find((c) => c.name.toLowerCase() === name.toLowerCase());
+      if (!cat) {
+        const { data, error } = await supabase
+          .from("categories")
+          .insert({ name })
+          .select()
+          .single();
+        if (error) throw error;
+        cat = data as Category;
+        setCategories((prev) => [...prev, cat!].sort((a, b) => a.name.localeCompare(b.name)));
+      }
+
+      const currentIds = categoriesConfig[storeCat] ?? [];
+      if (!currentIds.includes(cat.id)) {
+        const nextConfig: StoreCategoriesConfig = {
+          ...categoriesConfig,
+          [storeCat]: [...currentIds, cat.id],
+        };
+        await saveConfigToDb(nextConfig);
+      }
+
+      if (!nameToAdd) setNewCatName("");
+      toast.success(`Category "${name}" added to ${storeCat}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to add category");
+    } finally {
+      setCatSaving(false);
+    }
+  };
+
+  const handleRenameCategory = async (id: string) => {
+    const name = editingCatName.trim();
+    if (!name) {
+      setEditingCatId(null);
+      return;
+    }
+    setCatSaving(true);
+    try {
+      const { error } = await supabase.from("categories").update({ name }).eq("id", id);
+      if (error) throw error;
+      setCategories((prev) =>
+        prev
+          .map((c) => (c.id === id ? { ...c, name } : c))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setEditingCatId(null);
+      window.dispatchEvent(new Event(STORE_CATEGORIES_CONFIG_EVENT));
+      toast.success("Category renamed");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to rename category");
+    } finally {
+      setCatSaving(false);
+    }
+  };
+
+  const handleDeleteCategory = async (id: string, name: string) => {
+    const count = productCounts[id] ?? 0;
+    setCatSaving(true);
+    try {
+      // 1. If products are linked to this category, unassign category_id from products
+      if (count > 0) {
+        const { error: prodError } = await supabase
+          .from("products")
+          .update({ category_id: null })
+          .eq("category_id", id);
+        if (prodError) throw prodError;
+        setProductCounts((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+
+      // 2. Remove from all store categories in config
+      const nextConfig: StoreCategoriesConfig = {};
+      for (const [sCat, ids] of Object.entries(categoriesConfig)) {
+        nextConfig[sCat] = ids.filter((catId) => catId !== id);
+      }
+      await saveConfigToDb(nextConfig);
+
+      // 3. Delete from categories table
+      const { error } = await supabase.from("categories").delete().eq("id", id);
+      if (error) throw error;
+
+      setCategories((prev) => prev.filter((c) => c.id !== id));
+      window.dispatchEvent(new Event(STORE_CATEGORIES_CONFIG_EVENT));
+      toast.success(
+        count > 0
+          ? `Category "${name}" deleted (${count} product${count === 1 ? "" : "s"} unlinked)`
+          : `Category "${name}" deleted`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete category");
+    } finally {
+      setCatSaving(false);
+    }
+  };
+
+  const handleAssignToStore = async (id: string, storeCat: string, name: string) => {
+    const currentIds = categoriesConfig[storeCat] ?? [];
+    if (currentIds.includes(id)) return;
+    const nextConfig: StoreCategoriesConfig = {
+      ...categoriesConfig,
+      [storeCat]: [...currentIds, id],
+    };
+    await saveConfigToDb(nextConfig);
+    toast.success(`"${name}" added to ${storeCat}`);
   };
 
   const persist = async () => {
@@ -183,10 +405,11 @@ export function SettingsPanel() {
       <div>
         <h1 className="text-2xl font-bold">Settings</h1>
         <p className="text-sm text-muted-foreground">
-          Set up your store, customize its theme, and find support details.
+          Set up your store, configure categories, customize its theme, and find support details.
         </p>
       </div>
 
+      {/* 1. Store Details Card */}
       <Card>
         <CardHeader>
           <CardTitle>Store details</CardTitle>
@@ -262,6 +485,266 @@ export function SettingsPanel() {
         </CardContent>
       </Card>
 
+      {/* 2. Configuration Card */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FolderCog className="size-5 text-primary" />
+                Category Configuration
+              </CardTitle>
+              <CardDescription>
+                Configure categories for each store category. For example, if your shop is a Bookshop, you can add Books, Accessories, Toys, and Stationery. Categories added here will show in all category sections and POS.
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {/* Store Category Selector */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label htmlFor="config-store-category">Store Category to Configure</Label>
+              {activeStoreCategory === storeDetails.category && (
+                <Badge variant="secondary" className="gap-1 text-xs">
+                  <Store className="size-3" />
+                  Active Shop Category
+                </Badge>
+              )}
+            </div>
+            <Select
+              value={activeStoreCategory}
+              onValueChange={(val) => setSelectedStoreCategory(val)}
+            >
+              <SelectTrigger id="config-store-category" className="w-full">
+                <SelectValue placeholder="Select store category to configure" />
+              </SelectTrigger>
+              <SelectContent>
+                {STORE_CATEGORIES.map((cat) => (
+                  <SelectItem key={cat} value={cat}>
+                    {cat} {cat === storeDetails.category ? "★ (Current Shop)" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Quick-add suggestions */}
+          {presets.length > 0 && (
+            <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+                <Sparkles className="size-3.5 text-primary" />
+                Suggested categories for {activeStoreCategory}:
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {presets.map((preset) => {
+                  const isAdded = currentStoreCategories.some(
+                    (c) => c.name.toLowerCase() === preset.toLowerCase(),
+                  );
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      disabled={isAdded || catSaving}
+                      onClick={() => void handleAddCategory(preset)}
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors",
+                        isAdded
+                          ? "border-primary/40 bg-primary/10 text-primary cursor-default opacity-80"
+                          : "border-border bg-background hover:border-primary/60 hover:text-primary active:scale-95 cursor-pointer",
+                      )}
+                    >
+                      {isAdded ? (
+                        <Check className="size-3 text-primary" />
+                      ) : (
+                        <Plus className="size-3 text-muted-foreground" />
+                      )}
+                      {preset}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Add Category Form */}
+          <div className="space-y-2">
+            <Label htmlFor="new-cat-input">Add category to {activeStoreCategory}</Label>
+            <div className="flex gap-2">
+              <Input
+                id="new-cat-input"
+                placeholder={`e.g. ${presets[0] ?? "Books"}, ${presets[1] ?? "Accessories"}…`}
+                value={newCatName}
+                onChange={(e) => setNewCatName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void handleAddCategory();
+                  }
+                }}
+                disabled={catSaving}
+              />
+              <Button
+                type="button"
+                onClick={() => void handleAddCategory()}
+                disabled={catSaving || !newCatName.trim()}
+              >
+                <Plus className="size-4" /> Add
+              </Button>
+            </div>
+          </div>
+
+          {/* Categories List */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Configured categories for {activeStoreCategory} ({currentStoreCategories.length})
+              </Label>
+            </div>
+
+            {currentStoreCategories.length === 0 ? (
+              <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">
+                <p className="font-medium">No categories configured for {activeStoreCategory} yet.</p>
+                <p className="mt-1 text-xs">
+                  Click any suggested category above or type a name to add it.
+                </p>
+              </div>
+            ) : (
+              <div className="divide-y rounded-lg border">
+                {currentStoreCategories.map((c) => (
+                  <div
+                    key={c.id}
+                    className="flex items-center justify-between gap-2 px-3 py-2.5"
+                  >
+                    {editingCatId === c.id ? (
+                      <div className="flex flex-1 items-center gap-2">
+                        <Input
+                          value={editingCatName}
+                          onChange={(e) => setEditingCatName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") void handleRenameCategory(c.id);
+                          }}
+                          autoFocus
+                          className="h-8 text-sm"
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8"
+                          onClick={() => void handleRenameCategory(c.id)}
+                          disabled={catSaving || !editingCatName.trim()}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-8"
+                          onClick={() => setEditingCatId(null)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex items-center gap-2 truncate">
+                          <span className="font-medium">{c.name}</span>
+                          <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                            {productCounts[c.id] ?? 0}{" "}
+                            {(productCounts[c.id] ?? 0) === 1 ? "product" : "products"}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="size-8 p-0 text-muted-foreground hover:text-foreground"
+                            onClick={() => {
+                              setEditingCatId(c.id);
+                              setEditingCatName(c.name);
+                            }}
+                            title="Rename category"
+                          >
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="size-8 p-0 text-destructive/80 hover:bg-destructive/10 hover:text-destructive cursor-pointer"
+                            onClick={() => void handleDeleteCategory(c.id, c.name)}
+                            title="Delete category"
+                            disabled={catSaving}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Other Categories Collapsible */}
+          {otherCategories.length > 0 && (
+            <div className="space-y-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setShowOtherCategories(!showOtherCategories)}
+                className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                {showOtherCategories ? (
+                  <ChevronDown className="size-3.5" />
+                ) : (
+                  <ChevronRight className="size-3.5" />
+                )}
+                Other categories in database ({otherCategories.length})
+              </button>
+
+              {showOtherCategories && (
+                <div className="divide-y rounded-lg border bg-muted/10">
+                  {otherCategories.map((c) => (
+                    <div
+                      key={c.id}
+                      className="flex items-center justify-between gap-2 px-3 py-2 text-xs"
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <span>{c.name}</span>
+                        <span className="text-muted-foreground">
+                          ({productCounts[c.id] ?? 0} products)
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 text-xs"
+                          onClick={() => void handleAssignToStore(c.id, activeStoreCategory, c.name)}
+                          disabled={catSaving}
+                        >
+                          <Plus className="size-3 mr-1" /> Add to {activeStoreCategory}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-7 p-0 text-destructive/70 hover:bg-destructive/10 hover:text-destructive cursor-pointer"
+                          onClick={() => void handleDeleteCategory(c.id, c.name)}
+                          title="Delete category"
+                          disabled={catSaving}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 3. Theme Colors Card */}
       <Card>
         <CardHeader>
           <CardTitle>Theme colors</CardTitle>

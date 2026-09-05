@@ -1,11 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/components/auth-provider";
 import type { Category } from "@/lib/db.types";
 import type { ProductRow } from "@/lib/inventory";
+import { STORE_SETTING_KEYS } from "@/lib/store-details";
+import {
+  parseStoreCategoriesConfig,
+  serializeStoreCategoriesConfig,
+  STORE_CATEGORIES_CONFIG_EVENT,
+} from "@/lib/store-categories";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -22,12 +28,14 @@ export function CategoryManager({
   onOpenChange,
   initialCategories,
   products,
+  storeCategory,
   onChanged,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialCategories: Category[];
   products: ProductRow[];
+  storeCategory?: string;
   onChanged: () => Promise<void>;
 }) {
   const { supabase } = useAuth();
@@ -35,6 +43,10 @@ export function CategoryManager({
   const [newName, setNewName] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
+
+  useEffect(() => {
+    setCategories(initialCategories);
+  }, [initialCategories]);
 
   const productCount = (id: string) => products.filter((p) => p.category_id === id).length;
 
@@ -46,8 +58,31 @@ export function CategoryManager({
       toast.error(error.message.includes("duplicate") ? "Category already exists" : error.message);
       return;
     }
-    setCategories((prev) => [...prev, data as Category]);
+    const cat = data as Category;
+    setCategories((prev) => [...prev, cat]);
     setNewName("");
+
+    if (storeCategory) {
+      const { data: settingData } = await supabase
+        .from("app_settings")
+        .select("key, value")
+        .eq("key", STORE_SETTING_KEYS.categories_config)
+        .maybeSingle();
+      const config = parseStoreCategoriesConfig(settingData?.value);
+      const currentIds = config[storeCategory] ?? [];
+      if (!currentIds.includes(cat.id)) {
+        config[storeCategory] = [...currentIds, cat.id];
+        await supabase.from("app_settings").upsert(
+          {
+            key: STORE_SETTING_KEYS.categories_config,
+            value: serializeStoreCategoriesConfig(config),
+          },
+          { onConflict: "key" },
+        );
+      }
+    }
+
+    window.dispatchEvent(new Event(STORE_CATEGORIES_CONFIG_EVENT));
     await onChanged();
     toast.success("Category added");
   }
@@ -65,6 +100,7 @@ export function CategoryManager({
     }
     setCategories((prev) => prev.map((c) => (c.id === id ? { ...c, name } : c)));
     setEditing(null);
+    window.dispatchEvent(new Event(STORE_CATEGORIES_CONFIG_EVENT));
     await onChanged();
     toast.success("Category renamed");
   }
@@ -75,12 +111,33 @@ export function CategoryManager({
       toast.error(`Cannot delete — ${count} product${count === 1 ? "" : "s"} use this category`);
       return;
     }
+
+    const { data: settingData } = await supabase
+      .from("app_settings")
+      .select("key, value")
+      .eq("key", STORE_SETTING_KEYS.categories_config)
+      .maybeSingle();
+    if (settingData?.value) {
+      const config = parseStoreCategoriesConfig(settingData.value);
+      for (const sCat of Object.keys(config)) {
+        config[sCat] = config[sCat].filter((cId) => cId !== id);
+      }
+      await supabase.from("app_settings").upsert(
+        {
+          key: STORE_SETTING_KEYS.categories_config,
+          value: serializeStoreCategoriesConfig(config),
+        },
+        { onConflict: "key" },
+      );
+    }
+
     const { error } = await supabase.from("categories").delete().eq("id", id);
     if (error) {
       toast.error(error.message);
       return;
     }
     setCategories((prev) => prev.filter((c) => c.id !== id));
+    window.dispatchEvent(new Event(STORE_CATEGORIES_CONFIG_EVENT));
     await onChanged();
     toast.success("Category deleted");
   }

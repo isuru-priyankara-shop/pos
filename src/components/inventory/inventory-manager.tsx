@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus, Power, Tags, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -11,6 +11,13 @@ import { formatCurrency } from "@/lib/money";
 import { ProductFormDialog } from "@/components/inventory/product-form-dialog";
 import { CategoryManager } from "@/components/inventory/category-manager";
 import { BulkImportDialog } from "@/components/inventory/bulk-import-dialog";
+import { storeDetailsFromRows, STORE_DETAILS_EVENT } from "@/lib/store-details";
+import {
+  getCategoriesForStore,
+  parseStoreCategoriesConfig,
+  STORE_CATEGORIES_CONFIG_EVENT,
+  type StoreCategoriesConfig,
+} from "@/lib/store-categories";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -104,18 +111,49 @@ export function InventoryManager({
   const [editingProduct, setEditingProduct] = useState<ProductRow | null>(null);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [storeCategory, setStoreCategory] = useState("");
+  const [categoriesConfig, setCategoriesConfig] = useState<StoreCategoriesConfig>({});
 
   async function refresh() {
-    const [{ data: prods }, { data: cats }] = await Promise.all([
+    const [{ data: prods }, { data: cats }, { data: settings }] = await Promise.all([
       supabase
         .from("products")
         .select("*, category:categories(*), variants:product_variants(*)")
         .order("name"),
       supabase.from("categories").select("*").order("name"),
+      supabase.from("app_settings").select("key, value"),
     ]);
     if (prods) setProducts(prods as unknown as ProductRow[]);
     if (cats) setCategories(cats as Category[]);
+    if (settings) {
+      const details = storeDetailsFromRows(settings as { key: string; value: string }[] | null);
+      setStoreCategory(details.category);
+      setCategoriesConfig(parseStoreCategoriesConfig(settings as { key: string; value: string }[] | null));
+    }
   }
+
+  useEffect(() => {
+    void refresh();
+    const handleReload = () => {
+      void refresh();
+    };
+    window.addEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleReload);
+    window.addEventListener(STORE_DETAILS_EVENT, handleReload);
+    return () => {
+      window.removeEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleReload);
+      window.removeEventListener(STORE_DETAILS_EVENT, handleReload);
+    };
+  }, []);
+
+  const displayCategories = useMemo(() => {
+    const storeCats = getCategoriesForStore(categories, categoriesConfig, storeCategory);
+    const storeCatIds = new Set(storeCats.map((c) => c.id));
+    const activeProductCatIds = new Set(products.map((p) => p.category_id).filter(Boolean));
+    const extraCats = categories.filter(
+      (c) => !storeCatIds.has(c.id) && activeProductCatIds.has(c.id),
+    );
+    return [...storeCats, ...extraCats];
+  }, [categories, categoriesConfig, storeCategory, products]);
 
   const stats = useMemo(() => {
     const variants = products.flatMap((p) => p.variants);
@@ -265,7 +303,7 @@ export function InventoryManager({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All categories</SelectItem>
-            {categories.map((c) => (
+            {displayCategories.map((c) => (
               <SelectItem key={c.id} value={c.id}>
                 {c.name}
               </SelectItem>
@@ -469,7 +507,7 @@ export function InventoryManager({
           if (!o) setEditingProduct(null);
         }}
         product={editingProduct}
-        categories={categories}
+        categories={displayCategories.length > 0 ? displayCategories : categories}
         onSaved={refresh}
       />
 
@@ -478,6 +516,7 @@ export function InventoryManager({
         onOpenChange={setCategoriesOpen}
         initialCategories={categories}
         products={products}
+        storeCategory={storeCategory}
         onChanged={refresh}
       />
 
