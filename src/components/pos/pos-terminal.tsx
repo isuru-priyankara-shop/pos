@@ -7,7 +7,13 @@ import { useAuth } from "@/components/auth-provider";
 import type { Category, ProductWithVariants } from "@/lib/db.types";
 import { buildSalePayload, cartToTotalsInput, cartLineTotals, type CartLine, type PaymentEntry } from "@/lib/pos";
 import { computeTotals, formatCurrency, resolveDiscount, round2 } from "@/lib/money";
-import { storeDetailsFromRows } from "@/lib/store-details";
+import { storeDetailsFromRows, STORE_DETAILS_EVENT } from "@/lib/store-details";
+import {
+  getCategoriesForStore,
+  parseStoreCategoriesConfig,
+  STORE_CATEGORIES_CONFIG_EVENT,
+  type StoreCategoriesConfig,
+} from "@/lib/store-categories";
 import { useBarcodeScanner } from "@/hooks/use-barcode-scanner";
 import { CartPanel } from "@/components/pos/cart-panel";
 import { CheckoutDialog } from "@/components/pos/checkout-dialog";
@@ -48,6 +54,8 @@ export function PosTerminal() {
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [storeName, setStoreName] = useState("");
   const [storeLocation, setStoreLocation] = useState("");
+  const [storeCategory, setStoreCategory] = useState("");
+  const [categoriesConfig, setCategoriesConfig] = useState<StoreCategoriesConfig>({});
   const scanInputRef = useRef<HTMLInputElement>(null);
 
   const loadData = useRef<() => Promise<void>>(async () => {
@@ -68,11 +76,32 @@ export function PosTerminal() {
     const storeDetails = storeDetailsFromRows(settings as { key: string; value: string }[] | null);
     setStoreName(storeDetails.name);
     setStoreLocation(storeDetails.location);
+    setStoreCategory(storeDetails.category);
+    setCategoriesConfig(parseStoreCategoriesConfig(settings as { key: string; value: string }[] | null));
   });
 
   useEffect(() => {
-    loadData.current();
+    void loadData.current();
+    const handleReload = () => {
+      void loadData.current();
+    };
+    window.addEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleReload);
+    window.addEventListener(STORE_DETAILS_EVENT, handleReload);
+    return () => {
+      window.removeEventListener(STORE_CATEGORIES_CONFIG_EVENT, handleReload);
+      window.removeEventListener(STORE_DETAILS_EVENT, handleReload);
+    };
   }, []);
+
+  const displayCategories = useMemo(() => {
+    const storeCats = getCategoriesForStore(categories, categoriesConfig, storeCategory);
+    const storeCatIds = new Set(storeCats.map((c) => c.id));
+    const activeProductCatIds = new Set(products.map((p) => p.category_id).filter(Boolean));
+    const extraCats = categories.filter(
+      (c) => !storeCatIds.has(c.id) && activeProductCatIds.has(c.id),
+    );
+    return [...storeCats, ...extraCats];
+  }, [categories, categoriesConfig, storeCategory, products]);
 
   function addVariant(variantId: string) {
     const product = products.find((p) => p.variants?.some((v) => v.id === variantId));
@@ -334,7 +363,7 @@ export function PosTerminal() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All categories</SelectItem>
-              {categories.map((c) => (
+              {displayCategories.map((c) => (
                 <SelectItem key={c.id} value={c.id}>
                   {c.name}
                 </SelectItem>
