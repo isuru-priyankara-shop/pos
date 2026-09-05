@@ -1,4 +1,14 @@
 import type { Category } from "./db.types";
+import {
+  BookOpen,
+  Package,
+  Pill,
+  Shirt,
+  ShoppingBasket,
+  Smartphone,
+  Utensils,
+  type LucideIcon,
+} from "lucide-react";
 
 export const STORE_CATEGORIES_CONFIG_KEY = "store_categories_config";
 export const STORE_CATEGORIES_CONFIG_EVENT = "store-categories-config-updated";
@@ -124,5 +134,28 @@ export function getStoreCategoryForCategoryId(
     }
   }
   return null;
+}
+
+/**
+ * Returns a matching Lucide icon for a given store category.
+ * E.g., when shop is a Bookshop, returns BookOpen.
+ */
+export function getStoreCategoryIcon(storeCategory?: string | null): LucideIcon {
+  switch (storeCategory) {
+    case "Bookshop":
+      return BookOpen;
+    case "Clothing store":
+      return Shirt;
+    case "Restaurant":
+      return Utensils;
+    case "Grocery store":
+      return ShoppingBasket;
+    case "Electronics store":
+      return Smartphone;
+    case "Pharmacy":
+      return Pill;
+    default:
+      return Package;
+  }
 }
 

@@ -299,25 +299,40 @@ export function SettingsPanel() {
 
   const handleDeleteCategory = async (id: string, name: string) => {
     const count = productCounts[id] ?? 0;
-    if (count > 0) {
-      toast.error(
-        `Cannot delete "${name}" — ${count} product${count === 1 ? "" : "s"} use this category`,
-      );
-      return;
-    }
     setCatSaving(true);
     try {
+      // 1. If products are linked to this category, unassign category_id from products
+      if (count > 0) {
+        const { error: prodError } = await supabase
+          .from("products")
+          .update({ category_id: null })
+          .eq("category_id", id);
+        if (prodError) throw prodError;
+        setProductCounts((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      }
+
+      // 2. Remove from all store categories in config
       const nextConfig: StoreCategoriesConfig = {};
       for (const [sCat, ids] of Object.entries(categoriesConfig)) {
         nextConfig[sCat] = ids.filter((catId) => catId !== id);
       }
       await saveConfigToDb(nextConfig);
 
+      // 3. Delete from categories table
       const { error } = await supabase.from("categories").delete().eq("id", id);
       if (error) throw error;
 
       setCategories((prev) => prev.filter((c) => c.id !== id));
-      toast.success(`Category "${name}" deleted`);
+      window.dispatchEvent(new Event(STORE_CATEGORIES_CONFIG_EVENT));
+      toast.success(
+        count > 0
+          ? `Category "${name}" deleted (${count} product${count === 1 ? "" : "s"} unlinked)`
+          : `Category "${name}" deleted`,
+      );
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete category");
     } finally {
@@ -654,10 +669,10 @@ export function SettingsPanel() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            className="size-8 p-0 text-destructive/80 hover:bg-destructive/10 hover:text-destructive"
+                            className="size-8 p-0 text-destructive/80 hover:bg-destructive/10 hover:text-destructive cursor-pointer"
                             onClick={() => void handleDeleteCategory(c.id, c.name)}
-                            title={(productCounts[c.id] ?? 0) > 0 ? "Cannot delete category with products" : "Delete category"}
-                            disabled={(productCounts[c.id] ?? 0) > 0 || catSaving}
+                            title="Delete category"
+                            disabled={catSaving}
                           >
                             <Trash2 className="size-3.5" />
                           </Button>
@@ -705,21 +720,20 @@ export function SettingsPanel() {
                           size="sm"
                           className="h-7 text-xs"
                           onClick={() => void handleAssignToStore(c.id, activeStoreCategory, c.name)}
+                          disabled={catSaving}
                         >
                           <Plus className="size-3 mr-1" /> Add to {activeStoreCategory}
                         </Button>
-                        {(productCounts[c.id] ?? 0) === 0 && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="size-7 p-0 text-destructive/70 hover:text-destructive"
-                            onClick={() => void handleDeleteCategory(c.id, c.name)}
-                            title="Delete category"
-                            disabled={catSaving}
-                          >
-                            <Trash2 className="size-3" />
-                          </Button>
-                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-7 p-0 text-destructive/70 hover:bg-destructive/10 hover:text-destructive cursor-pointer"
+                          onClick={() => void handleDeleteCategory(c.id, c.name)}
+                          title="Delete category"
+                          disabled={catSaving}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
                       </div>
                     </div>
                   ))}
