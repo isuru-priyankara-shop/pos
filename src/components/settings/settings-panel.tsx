@@ -53,6 +53,7 @@ import {
   ChevronDown,
   ChevronRight,
   FolderCog,
+  KeyRound,
   Pencil,
   Plus,
   Sparkles,
@@ -102,6 +103,35 @@ export function SettingsPanel() {
   const [editingCatName, setEditingCatName] = useState("");
   const [catSaving, setCatSaving] = useState(false);
   const [showOtherCategories, setShowOtherCategories] = useState(false);
+
+  // Change Admin/User Password state
+  const [myNewPassword, setMyNewPassword] = useState("");
+  const [myConfirmPassword, setMyConfirmPassword] = useState("");
+  const [passSaving, setPassSaving] = useState(false);
+
+  const handleUpdateMyPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (myNewPassword.length < 8) {
+      toast.error("Password must be at least 8 characters long");
+      return;
+    }
+    if (myNewPassword !== myConfirmPassword) {
+      toast.error("Passwords do not match");
+      return;
+    }
+    setPassSaving(true);
+    try {
+      const { error } = await supabase.auth.updateUser({ password: myNewPassword });
+      if (error) throw error;
+      toast.success("Your password has been updated successfully");
+      setMyNewPassword("");
+      setMyConfirmPassword("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to update password");
+    } finally {
+      setPassSaving(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -831,6 +861,52 @@ export function SettingsPanel() {
           Reset to default
         </Button>
       </div>
+
+      <Separator />
+
+      {/* 4. Change Account Password Card */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <KeyRound className="size-5 text-primary" />
+            Security & Account Password
+          </CardTitle>
+          <CardDescription>
+            Update your account password. Works for Admin, Manager, and Staff accounts.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleUpdateMyPassword} className="space-y-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="my-new-password">New Password</Label>
+                <Input
+                  id="my-new-password"
+                  type="password"
+                  value={myNewPassword}
+                  onChange={(e) => setMyNewPassword(e.target.value)}
+                  placeholder="Min 8 characters"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="my-confirm-password">Confirm New Password</Label>
+                <Input
+                  id="my-confirm-password"
+                  type="password"
+                  value={myConfirmPassword}
+                  onChange={(e) => setMyConfirmPassword(e.target.value)}
+                  placeholder="Repeat new password"
+                  required
+                />
+              </div>
+            </div>
+            <Button type="submit" disabled={passSaving} className="w-full sm:w-auto">
+              {passSaving ? "Updating..." : "Update my password"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <Separator />
 
