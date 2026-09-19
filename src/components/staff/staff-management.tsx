@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, Pencil } from "lucide-react";
+import { Plus, Pencil, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import type { Profile, Role } from "@/lib/db.types";
 import { Button } from "@/components/ui/button";
@@ -73,6 +73,9 @@ export function StaffManagement({
   const [staff, setStaff] = useState<Profile[]>(initialStaff);
   const [addOpen, setAddOpen] = useState(false);
   const [editing, setEditing] = useState<Profile | null>(null);
+  const [resetPassUser, setResetPassUser] = useState<Profile | null>(null);
+  const [resetPassValue, setResetPassValue] = useState("");
+  const [resetPassConfirm, setResetPassConfirm] = useState("");
   const [form, setForm] = useState<StaffForm>(EMPTY_FORM);
   const [busy, setBusy] = useState(false);
 
@@ -95,6 +98,43 @@ export function StaffManagement({
       role: p.role,
       is_active: p.is_active,
     });
+  }
+
+  function openResetPassword(p: Profile) {
+    setResetPassUser(p);
+    setResetPassValue("");
+    setResetPassConfirm("");
+  }
+
+  async function handleAdminResetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resetPassUser) return;
+    if (resetPassValue.length < 8) {
+      toast.error("Password must be at least 8 characters long");
+      return;
+    }
+    if (resetPassValue !== resetPassConfirm) {
+      toast.error("Passwords do not match");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/users/${resetPassUser.id}/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: resetPassValue }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to reset password");
+
+      toast.success(`Password reset for ${resetPassUser.full_name}`);
+      setResetPassUser(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to reset password");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -176,8 +216,7 @@ export function StaffManagement({
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Staff</h1>
           <p className="text-sm text-muted-foreground">
-            Create login accounts and manage roles. New users get a password set by you and can
-            sign in immediately.
+            Create login accounts, manage roles, and reset passwords for store accounts.
           </p>
         </div>
         <Button onClick={openAdd} className="w-full sm:w-auto">
@@ -214,9 +253,14 @@ export function StaffManagement({
                 ) : (
                   <Badge variant="destructive">Inactive</Badge>
                 )}
-                <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
-                  <Pencil className="size-4" /> Edit
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => openResetPassword(p)}>
+                    <KeyRound className="size-4" /> Reset
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
+                    <Pencil className="size-4" /> Edit
+                  </Button>
+                </div>
               </div>
             </div>
           ))
@@ -265,9 +309,14 @@ export function StaffManagement({
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
-                      <Pencil className="size-4" /> Edit
-                    </Button>
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" size="sm" onClick={() => openResetPassword(p)}>
+                        <KeyRound className="size-4 mr-1" /> Reset Password
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => openEdit(p)}>
+                        <Pencil className="size-4 mr-1" /> Edit
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -276,6 +325,7 @@ export function StaffManagement({
         </Table>
       </div>
 
+      {/* Add Staff Dialog */}
       <Dialog open={addOpen} onOpenChange={setAddOpen}>
         <DialogContent>
           <DialogHeader>
@@ -367,6 +417,7 @@ export function StaffManagement({
         </DialogContent>
       </Dialog>
 
+      {/* Edit Staff Dialog */}
       <Dialog open={!!editing} onOpenChange={(o) => !o && setEditing(null)}>
         <DialogContent>
           <DialogHeader>
@@ -431,6 +482,53 @@ export function StaffManagement({
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Admin Reset Password Dialog */}
+      <Dialog open={!!resetPassUser} onOpenChange={(o) => !o && setResetPassUser(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset Password for {resetPassUser?.full_name}</DialogTitle>
+            <DialogDescription>
+              Set a new password for account ({resetPassUser?.email ?? "User"}).
+            </DialogDescription>
+          </DialogHeader>
+          {resetPassUser && (
+            <form onSubmit={handleAdminResetPassword} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="admin-reset-new">New Password</Label>
+                <Input
+                  id="admin-reset-new"
+                  type="password"
+                  value={resetPassValue}
+                  onChange={(e) => setResetPassValue(e.target.value)}
+                  placeholder="At least 8 characters"
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="admin-reset-confirm">Confirm New Password</Label>
+                <Input
+                  id="admin-reset-confirm"
+                  type="password"
+                  value={resetPassConfirm}
+                  onChange={(e) => setResetPassConfirm(e.target.value)}
+                  placeholder="Repeat new password"
+                  required
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setResetPassUser(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" disabled={busy}>
+                  {busy ? "Resetting…" : "Reset Password"}
+                </Button>
+              </DialogFooter>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+

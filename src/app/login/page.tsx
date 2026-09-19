@@ -7,6 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { toast } from "sonner";
 
 export default function LoginPage() {
@@ -14,6 +22,11 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Forgot password dialog state
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [resetEmail, setResetEmail] = useState("");
+  const [sendingReset, setSendingReset] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -44,6 +57,34 @@ export default function LoginPage() {
     }
   }
 
+  async function handleSendResetEmail(e: React.FormEvent) {
+    e.preventDefault();
+    if (!resetEmail) {
+      toast.error("Please enter your email address");
+      return;
+    }
+
+    setSendingReset(true);
+    try {
+      const supabase = createClient();
+      const redirectTo = `${window.location.origin}/reset-password`;
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, { redirectTo });
+      if (error) throw error;
+
+      toast.success("Password reset instructions sent to your email!");
+      setForgotOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to send password reset email");
+    } finally {
+      setSendingReset(false);
+    }
+  }
+
+  function openForgotPassword() {
+    setResetEmail(email);
+    setForgotOpen(true);
+  }
+
   return (
     <div
       className="relative flex min-h-screen items-center justify-center bg-cover bg-center p-4"
@@ -69,7 +110,16 @@ export default function LoginPage() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Password</Label>
+                <button
+                  type="button"
+                  onClick={openForgotPassword}
+                  className="text-xs font-medium text-primary hover:underline cursor-pointer"
+                >
+                  Forgot password?
+                </button>
+              </div>
               <Input
                 id="password"
                 type="password"
@@ -85,6 +135,39 @@ export default function LoginPage() {
           </form>
         </CardContent>
       </Card>
+
+      <Dialog open={forgotOpen} onOpenChange={setForgotOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>
+              Enter your email address to receive a secure link to reset your password.
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSendResetEmail} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="reset-email">Account Email</Label>
+              <Input
+                id="reset-email"
+                type="email"
+                value={resetEmail}
+                onChange={(e) => setResetEmail(e.target.value)}
+                placeholder="name@example.com"
+                required
+              />
+            </div>
+            <DialogFooter className="gap-2 sm:gap-0">
+              <Button type="button" variant="outline" onClick={() => setForgotOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={sendingReset}>
+                {sendingReset ? "Sending…" : "Send Reset Link"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
+
